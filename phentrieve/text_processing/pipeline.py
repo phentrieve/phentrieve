@@ -50,6 +50,27 @@ _REPORTING_LEMMAS = frozenset(
 _SOURCE_LEMMAS = frozenset(
     {"accord", "according", "laut", "angabe", "selon", "según", "volgens"}
 )
+# Family cues that name a history section, not a person who could report.
+_HISTORY_CUES = frozenset(
+    {
+        "family history",
+        "familienanamnese",
+        "antécédents familiaux",
+        "antecedentes familiares",
+        "familieanamnese",
+    }
+)
+
+
+def _is_infinitive(token: Any) -> bool:
+    """An infinitive complement ("reported to have X"): the subject has X."""
+    return token.dep_ == "xcomp" or (
+        token.dep_ in ("ccomp", "oc")
+        and any(
+            child.dep_ in ("aux", "pm") and child.lower_ in ("to", "zu")
+            for child in token.subtree
+        )
+    )
 
 
 def _cue_spans(text_lower: str, cues: tuple[str, ...]) -> list[tuple[int, int]]:
@@ -122,11 +143,18 @@ class _SentenceContext:
         patient: the relative is the subject of a reporting verb or the source
         of "according to" / "laut" / "nach Angaben".
         """
+        if self.lower[start:end] in _HISTORY_CUES:
+            return False  # "Family history reports ..." is no person
         for token in self.tokens(start, end):
-            # Active subjects only: "the brother was observed with ..." is his.
+            head = token.head
+            # German separable verbs: "gibt ... an" -> "angeben".
+            particles = "".join(c.lemma_ for c in head.children if c.dep_ == "svp")
+            # Active subjects only: "the brother was observed with ..." is his,
+            # as is "Father reported to have epilepsy" (xcomp).
             if (
                 token.dep_ in ("nsubj", "sb")
-                and token.head.lemma_.lower() in _REPORTING_LEMMAS
+                and (particles + head.lemma_).lower() in _REPORTING_LEMMAS
+                and not any(_is_infinitive(c) for c in head.children)
             ):
                 return True
             if any(

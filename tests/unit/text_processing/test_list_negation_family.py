@@ -151,6 +151,8 @@ def _experiencer(pipeline: TextProcessingPipeline, text: str, needle: str):
         ("The parents report developmental delay.", "developmental delay", None),
         ("According to the father, ataxia since infancy.", "ataxia", None),
         ("His brother was observed with scoliosis.", "scoliosis", FAMILY_EXPERIENCER),
+        ("Father reported to have epilepsy.", "epilepsy", FAMILY_EXPERIENCER),
+        ("Mother states he has had seizures.", "seizures", None),
         ("The patient has scoliosis.", "scoliosis", None),
         ("Her sister is healthy. She has scoliosis.", "scoliosis", None),
     ],
@@ -166,6 +168,8 @@ def test_family_experiencer(en, text, needle, expected) -> None:
         ("Die Eltern berichten eine Entwicklungsverzoegerung.", "entwicklung", None),
         ("Die Mutter bemerkte eine Muskelhypotonie.", "muskelhypotonie", None),
         ("Laut Mutter Krampfanfaelle seit Geburt.", "krampfanfaelle", None),
+        ("Die Mutter gibt Krampfanfaelle seit Geburt an.", "krampfanfaelle", None),
+        ("Die Mutter leidet an Migraene.", "migraene", FAMILY_EXPERIENCER),
         ("Nach Angaben der Mutter bestehen Krampfanfaelle.", "krampfanfaelle", None),
     ],
 )
