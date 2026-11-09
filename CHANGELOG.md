@@ -18,6 +18,17 @@ together:
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
+
+Standard negation keeps clinical meaning for multi-word cues ("ruled out", "negative
+for", "cannot be ruled out"), Phenopacket export keeps assertion and temporality detail,
+family and other-person findings are shown apart, `GET /api/v1/health/ready`, and a batch
+of LLM pipeline and frontend fixes.
+
+Behaviour changes: uncertain findings are left out of Phenopacket exports; a term
+reported both as observed and as excluded exports as one observed feature;
+`PROMPT_BEHAVIOR_VERSION` is `6`, so earlier LLM benchmark checkpoints do not match.
+
 ### Added
 
 - **Full-text results warn when the LLM extraction is partial.** The API already flagged
