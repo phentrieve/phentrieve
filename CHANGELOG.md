@@ -26,8 +26,9 @@ together:
 - **Family and other-person findings appear in full-text results (#460).** They are listed
   apart from the patient's findings and stay out of "Add all". A note naming only other
   people used to report 0 findings.
-- **`GET /api/v1/health/ready` reports whether the default model is loaded.** It answers
-  503 while the model loads and 200 afterwards. `/api/v1/health` stays a liveness check,
+- **`GET /api/v1/health/ready` reports whether the default model and its retriever are
+  loaded.** It answers 503 while either is still loading (or the index is missing) and
+  200 afterwards. `/api/v1/health` stays a liveness check,
   and the E2E suite now waits for readiness instead of failing on a cold start.
 
 ### Changed
@@ -35,8 +36,9 @@ together:
 - **Phase-1 prompt v3.3.1: constructed examples.** The temporality and duplicate
   examples in `two_phase/en.yaml` are replaced by invented ones (eczema, warts,
   urticaria), and several test fixtures use invented sentences instead of sentences
-  quoted from published case reports. Rules are unchanged. `PROMPT_BEHAVIOR_VERSION`
-  is `6`, so earlier LLM benchmark checkpoints do not match.
+  quoted from published case reports. Rules are unchanged. Together with the
+  phase-1 chunk index change (#487) `PROMPT_BEHAVIOR_VERSION` is `7`, so earlier LLM
+  benchmark checkpoints do not match.
 
 ### Fixed
 
@@ -75,12 +77,17 @@ together:
 - **A phase-1 item without `chunk_ids` no longer invalidates the response**;
   it is kept unanchored and counted (`phase1_unanchored_phrases`) (#489).
 - **Negated qualifiers are mapped through the regular route-and-map path**,
-  and an explicit `hpo_id: null` no longer triggers the local fallback (#490).
+  and an explicit `hpo_id: null` no longer triggers the local fallback (#490). A
+  response that omits `hpo_id` still gets the local fallback. When mapping the
+  qualifiers fails, the resolved findings are still returned and the failure is
+  counted (`negated_qualifier_failures`).
 - **Normal and negated phrases are also retrieved without their cue** (#491).
 - **Batch retrieval returns the pipeline's requested candidate count**; the
   tool cap applies to model tool calls only (#492).
 - **Ontology guard drops are counted** (`ontology_guard_dropped_terms`) and the
-  trace records whether the guard was active (#493, partial).
+  trace records whether the guard was active (#493, partial). The candidate filter
+  loads the HPO graph once per retrieval instead of once per candidate, and a missing
+  database is logged as an error once per path, then at debug level.
 - **LLM benchmark marks documents with unrecovered phase-1 groups
   `incomplete`** and retries them on resume; phase-2 failures raise
   `LLMPipelinePhaseError` so one document no longer aborts the run (#494).

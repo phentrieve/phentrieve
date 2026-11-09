@@ -4305,6 +4305,60 @@ def test_two_phase_pipeline_carries_negated_qualifier_through_to_term():
     assert generated[0].qualifier_surface_text == "regression"
 
 
+def test_failed_qualifier_mapping_keeps_the_resolved_findings():
+    """A failure while mapping the negated qualifier Y only loses the generated
+    exclusion; the resolved finding is still returned and the failure counted."""
+    provider = FakeProvider(
+        responses=[
+            {
+                "parsed": {
+                    "phenotypes": [
+                        {
+                            "phrase": "severe intellectual disability",
+                            "category": "Abnormal",
+                            "assertion": "present",
+                            "negated_qualifier": "regression",
+                            "chunk_ids": [1],
+                            "evidence_text": "severe intellectual disability",
+                        }
+                    ]
+                },
+            },
+            {"exception": ValueError("mapping service down")},
+        ]
+    )
+    tool_executor = FakeToolExecutor(
+        batch_results=[
+            {
+                "phrase": "severe intellectual disability",
+                "candidates": [
+                    {
+                        "hpo_id": "HP:0010864",
+                        "term_name": "Severe intellectual disability",
+                        "score": 0.95,
+                    }
+                ],
+            },
+        ]
+    )
+    pipeline = TwoPhaseLLMPipeline(provider=provider, tool_executor=tool_executor)
+
+    result = pipeline.run(
+        text="severe intellectual disability without regression",
+        grounded_chunks=[
+            {
+                "chunk_id": 1,
+                "text": "severe intellectual disability without regression",
+            }
+        ],
+        config=LLMPipelineConfig(model="gemini-2.5-flash", mode="two_phase"),
+    )
+
+    assert [t.term_id for t in result.terms] == ["HP:0010864"]
+    assert result.terms[0].negated_qualifier == "regression"
+    assert result.meta.phase_counts["negated_qualifier_failures"] == 1
+
+
 def test_phase1_failure_is_recorded_in_trace_not_silenced(caplog):
     caplog.set_level(logging.ERROR, logger="phentrieve.llm.pipeline")
     provider = FailingStructuredProvider()
@@ -4382,6 +4436,43 @@ def test_explicit_null_mapping_skips_the_local_fallback() -> None:
 
     assert result.terms == []
     assert result.meta.phase_counts["local_fallbacks"] == 0
+
+
+def test_omitted_hpo_id_is_not_an_explicit_null() -> None:
+    # hpo_id defaults to None; only a key the model sent rejects the candidates.
+    from phentrieve.llm.pipeline_phase2 import explicit_null_item_ids
+    from phentrieve.llm.types import (
+        LLMBatchMappingSelections,
+        LLMMappingSelection,
+    )
+
+    batch = [{}, {}, {}]
+    assert (
+        explicit_null_item_ids(
+            mapping_response=LLMMappingSelection.model_validate({"phrase": "a"}),
+            batch=[{}],
+        )
+        == set()
+    )
+    assert explicit_null_item_ids(
+        mapping_response=LLMMappingSelection.model_validate(
+            {"phrase": "a", "hpo_id": None}
+        ),
+        batch=[{}],
+    ) == {"item_1"}
+    response = LLMBatchMappingSelections.model_validate(
+        {
+            "mappings": [
+                {"item_id": "item_1"},
+                {"item_id": "item_2", "hpo_id": None},
+                {"item_id": "item_3", "hpo_id": ""},
+            ]
+        }
+    )
+    assert explicit_null_item_ids(mapping_response=response, batch=batch) == {
+        "item_2",
+        "item_3",
+    }
 
 
 def test_phase2_failures_raise_typed_phase_errors() -> None:

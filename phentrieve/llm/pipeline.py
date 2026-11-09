@@ -34,6 +34,7 @@ from phentrieve.llm.evidence_offsets import EvidenceLocator, rendered_regions
 from phentrieve.llm.ontology_guard import (
     guard_available,
     is_non_phenotypic_abnormality,
+    load_guard_map,
 )
 from phentrieve.llm.pipeline_phase1 import (
     ACTIONABLE_CATEGORIES,
@@ -648,11 +649,29 @@ class TwoPhaseLLMPipeline:
         # generated and the source finding's ``negated_qualifier`` metadata
         # string is retained. This runs AFTER proband resolution and BEFORE the
         # final dedup so the generated terms flow through the same dedup key.
-        qualifier_exclusions, qualifier_outcome = self._build_qualifier_exclusions(
-            resolved_terms=resolved_terms,
-            grounded_chunks=grounded_chunks,
-            language=language,
-        )
+        # The generated exclusions are secondary: when resolving them fails the
+        # resolved findings are still returned, each keeping its
+        # ``negated_qualifier`` string, and the failure is counted.
+        try:
+            qualifier_exclusions, qualifier_outcome = self._build_qualifier_exclusions(
+                resolved_terms=resolved_terms,
+                grounded_chunks=grounded_chunks,
+                language=language,
+            )
+        except LLMPipelinePhaseError as exc:
+            logger.warning(
+                "Negated-qualifier resolution failed in %s (%s); "
+                "returning findings without generated exclusions",
+                exc.phase,
+                exc,
+            )
+            qualifier_exclusions, qualifier_outcome = [], None
+            token_usage_total = _sum_usage_dicts(token_usage_total, exc.usage)
+            prompt_tokens_total += int(exc.usage.get("prompt_tokens", 0) or 0)
+            completion_tokens_total += int(exc.usage.get("completion_tokens", 0) or 0)
+            request_count_total += exc.request_count
+            phase_counts["negated_qualifier_failures"] = 1
+            trace["negated_qualifier"] = {"failed_phase": exc.phase}
         if qualifier_outcome is not None:
             prompt_tokens_total += qualifier_outcome.prompt_tokens
             completion_tokens_total += qualifier_outcome.completion_tokens
@@ -1754,6 +1773,8 @@ class TwoPhaseLLMPipeline:
                 (query, batch_result)
             )
 
+        # Loaded once: the guard checks every candidate of every phrase below.
+        guard_map = load_guard_map()
         for item in unique_actionable:
             phrase = str(item["phrase"])
             category = str(item["category"])
@@ -1792,7 +1813,7 @@ class TwoPhaseLLMPipeline:
                     hpo_id = str(candidate.get("hpo_id", "")).strip()
                     # Filter before mapping: _drop_non_phenotypic runs after a term is
                     # chosen, so a finding mapped to a modifier would be lost entirely.
-                    if not hpo_id or is_non_phenotypic_abnormality(hpo_id):
+                    if not hpo_id or is_non_phenotypic_abnormality(hpo_id, guard_map):
                         continue
                     existing = merged_candidates.get(hpo_id)
                     if existing is None or float(

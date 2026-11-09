@@ -3,9 +3,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from api import dependencies
 from api.main import app
 from api.routers import health
-from phentrieve.config import DEFAULT_MODEL
+from phentrieve.config import DEFAULT_MODEL, DEFAULT_MULTI_VECTOR
+from phentrieve.retrieval.model_policy import resolve_retrieval_model_policy
 
 pytestmark = pytest.mark.unit
 
@@ -37,6 +39,7 @@ def test_health_aliases_return_the_canonical_payload(alias):
 
 def test_ready_route_stays_503_until_the_default_model_is_loaded(monkeypatch):
     monkeypatch.setattr(health, "LOADED_SBERT_MODELS", {})
+    monkeypatch.setattr(health, "default_retriever_loaded", lambda: True)
     response = client.get("/api/v1/health/ready")
 
     assert response.status_code == 503
@@ -50,6 +53,22 @@ def test_ready_route_stays_503_until_the_default_model_is_loaded(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
+
+
+def test_ready_route_stays_503_while_the_default_retriever_is_missing(monkeypatch):
+    """The model can be loaded while the index is still loading or missing."""
+    monkeypatch.setattr(health, "LOADED_SBERT_MODELS", {DEFAULT_MODEL: object()})
+    monkeypatch.setattr(dependencies, "LOADED_RETRIEVERS", {})
+
+    response = client.get("/api/v1/health/ready")
+    assert response.status_code == 503
+    assert response.json()["status"] == "loading"
+
+    model_name = resolve_retrieval_model_policy(DEFAULT_MODEL).model_name
+    key = dependencies.retriever_cache_key_for(model_name, DEFAULT_MULTI_VECTOR)
+    monkeypatch.setattr(dependencies, "LOADED_RETRIEVERS", {key: object()})
+
+    assert client.get("/api/v1/health/ready").status_code == 200
 
 
 def test_only_the_canonical_health_route_is_documented():

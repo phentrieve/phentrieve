@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Response, status
 
-from api.dependencies import LOADED_SBERT_MODELS
+from api.dependencies import LOADED_SBERT_MODELS, default_retriever_loaded
 from api.version import get_api_version
 from phentrieve.config import DEFAULT_MODEL
 
@@ -37,13 +37,14 @@ async def health_check() -> dict:
 @router.get("/ready", include_in_schema=False)
 async def readiness_check(response: Response) -> dict:
     """
-    Report whether the default embedding model is loaded.
+    Report whether the default embedding model and its retriever are loaded.
 
-    The API accepts requests while the model still loads in the background, and
-    queries answer 503 until then. Liveness stays on the health route, so a slow
+    The API accepts requests while they still load in the background, and
+    queries answer 503 until then; the retriever loads after the model and can
+    fail on its own (missing index). Liveness stays on the health route, so a slow
     model load does not mark the container unhealthy.
     """
-    ready = DEFAULT_MODEL in LOADED_SBERT_MODELS
+    ready = DEFAULT_MODEL in LOADED_SBERT_MODELS and default_retriever_loaded()
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         response.headers["Retry-After"] = "30"

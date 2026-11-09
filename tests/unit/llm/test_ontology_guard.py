@@ -88,13 +88,18 @@ def test_pipeline_drops_non_phenotypic_terms(monkeypatch):
 def test_modifier_candidates_never_reach_mapping(monkeypatch):
     """A modifier match must not cost the finding: "recurrent seizures" matches
     Seizure cluster exactly, and the post-mapping guard then dropped it."""
-    _guard_with_map(
-        monkeypatch,
-        {
-            "HP:0033349": {"HP:0000001", "HP:0012823"},  # Seizure cluster (course)
-            "HP:0001250": {"HP:0000001", "HP:0000118"},  # Seizure
-        },
-    )
+    guard_map = {
+        "HP:0033349": frozenset({"HP:0000001", "HP:0012823"}),  # Seizure cluster
+        "HP:0001250": frozenset({"HP:0000001", "HP:0000118"}),  # Seizure
+    }
+    lookups: list[int] = []
+
+    def _counting_map():
+        lookups.append(1)
+        return guard_map
+
+    # One lookup per retrieval, not one per candidate.
+    monkeypatch.setattr(ontology_guard, "_ancestors_map", _counting_map)
 
     class ToolExecutor:
         def query_batch_hpo_terms(self, *, phrases, language, n_results):
@@ -127,6 +132,7 @@ def test_modifier_candidates_never_reach_mapping(monkeypatch):
     )
 
     assert [c["hpo_id"] for c in results[0]["candidates"]] == ["HP:0001250"]
+    assert len(lookups) == 1
 
 
 def test_guard_counts_drops_across_proband_family_and_other(monkeypatch):
@@ -153,3 +159,30 @@ def test_guard_reports_unavailable_graph(monkeypatch):
     _guard_with_map(monkeypatch, {})
 
     assert ontology_guard.guard_available() is False
+
+
+def test_missing_db_is_logged_as_error_once(monkeypatch, tmp_path, caplog):
+    """Retries keep running, but only the first failure per path is an ERROR."""
+    import logging
+
+    og = ontology_guard
+    og._ANCESTORS_CACHE.clear()
+    monkeypatch.setattr(og, "_REPORTED_FAILURES", set())
+    monkeypatch.setattr(og, "resolve_data_path", lambda *a, **k: tmp_path)
+
+    with caplog.at_level(logging.DEBUG, logger=og.__name__):
+        for _ in range(3):
+            assert og._ancestors_map() == {}
+
+    levels = [r.levelno for r in caplog.records if "not found" in r.getMessage()]
+    assert levels == [logging.ERROR, logging.DEBUG, logging.DEBUG]
+
+
+def test_explicit_map_skips_the_lookup(monkeypatch):
+    def _fail():
+        raise AssertionError("_ancestors_map must not be called")
+
+    monkeypatch.setattr(ontology_guard, "_ancestors_map", _fail)
+    guard_map = {"HP:0012825": frozenset({"HP:0000001", "HP:0012823"})}
+    assert ontology_guard.is_non_phenotypic_abnormality("HP:0012825", guard_map)
+    assert not ontology_guard.is_non_phenotypic_abnormality("HP:9999999", guard_map)
