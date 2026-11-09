@@ -3568,7 +3568,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.137.2" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.137.2" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.4.10,<5.0.0" },
-    { name = "google-genai", marker = "extra == 'llm'", specifier = ">=1.22.0,<3.0.0" },
+    { name = "google-genai", marker = "extra == 'llm'", specifier = ">=1.22.0,<4.0.0" },
     { name = "jsonschema", marker = "extra == 'phenopackets'", specifier = ">=4.25.1,<5.0.0" },
     { name = "langdetect", marker = "extra == 'api'", specifier = ">=1.0.9" },
     { name = "matplotlib", specifier = ">=3.10.8" },
