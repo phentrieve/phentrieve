@@ -54,6 +54,11 @@ together:
   "ruled out", "negative for" and "absence of" were affirmed, and "cannot be ruled out" was
   negated. This also holds when chunking splits such a phrase. Open findings are reported
   as affirmed, not uncertain.
+- **Negated findings in full text are also retrieved without their cue (#472).** The
+  standard backend embedded the cue with the finding, so "Seizures were ruled out" pulled
+  retrieval toward unrelated terms (absence seizure). Each negated chunk's scope is now
+  also queried without the cue and the results are merged; the chunk itself is still
+  queried for affirmed content outside the scope.
 - **The LLM pipeline no longer loses findings mapped to clinical-modifier terms (#471).**
   "Patient has recurrent seizures." returned nothing, because the exact match Seizure
   cluster was removed after mapping. Such terms now leave the candidates before mapping.
