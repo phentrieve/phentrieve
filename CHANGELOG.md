@@ -18,6 +18,23 @@ together:
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
+
+Standard-pipeline negation of whole lists and family findings (#400), multi-word and
+pseudo negation cues (#459), negated-scope retrieval (#472), the LLM pipeline review
+fixes (#486-#495), Phenopacket export of uncertain and temporal findings (#399), family
+and other-person findings in the full-text UI (#460), a readiness route, and Docker
+image security updates.
+
+Behaviour changes: standard results can report more negated terms and move relatives'
+findings to `family_history_findings`; Phenopacket exports leave uncertain findings out
+and `text process -o phenopacket_v2_json` writes one feature per term;
+`PROMPT_BEHAVIOR_VERSION` is `7`, so earlier LLM benchmark checkpoints do not match.
+
+Known limitations: a negation cue still negates its whole chunk, including an affirmed
+finding before it in the same chunk (#521). The interactive CLI mode and the extraction
+benchmark do not yet move family findings out of the patient's terms.
+
 ### Added
 
 - **Full-text results warn when the LLM extraction is partial.** The API already flagged
