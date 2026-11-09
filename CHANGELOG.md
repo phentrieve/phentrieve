@@ -18,6 +18,23 @@ together:
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
+
+Standard-pipeline negation of whole lists and family findings (#400), multi-word and
+pseudo negation cues (#459), negated-scope retrieval (#472), the LLM pipeline review
+fixes (#486-#495), Phenopacket export of uncertain and temporal findings (#399), family
+and other-person findings in the full-text UI (#460), a readiness route, and Docker
+image security updates.
+
+Behaviour changes: standard results can report more negated terms and move relatives'
+findings to `family_history_findings`; Phenopacket exports leave uncertain findings out
+and `text process -o phenopacket_v2_json` writes one feature per term;
+`PROMPT_BEHAVIOR_VERSION` is `7`, so earlier LLM benchmark checkpoints do not match.
+
+Known limitations: a negation cue still negates its whole chunk, including an affirmed
+finding before it in the same chunk (#521). The interactive CLI mode and the extraction
+benchmark do not yet move family findings out of the patient's terms.
+
 ### Added
 
 - **Full-text results warn when the LLM extraction is partial.** The API already flagged
@@ -26,8 +43,9 @@ together:
 - **Family and other-person findings appear in full-text results (#460).** They are listed
   apart from the patient's findings and stay out of "Add all". A note naming only other
   people used to report 0 findings.
-- **`GET /api/v1/health/ready` reports whether the default model is loaded.** It answers
-  503 while the model loads and 200 afterwards. `/api/v1/health` stays a liveness check,
+- **`GET /api/v1/health/ready` reports whether the default model and its retriever are
+  loaded.** It answers 503 while either is still loading (or the index is missing) and
+  200 afterwards. `/api/v1/health` stays a liveness check,
   and the E2E suite now waits for readiness instead of failing on a cold start.
 
 ### Changed
@@ -35,11 +53,21 @@ together:
 - **Phase-1 prompt v3.3.1: constructed examples.** The temporality and duplicate
   examples in `two_phase/en.yaml` are replaced by invented ones (eczema, warts,
   urticaria), and several test fixtures use invented sentences instead of sentences
-  quoted from published case reports. Rules are unchanged. `PROMPT_BEHAVIOR_VERSION`
-  is `6`, so earlier LLM benchmark checkpoints do not match.
+  quoted from published case reports. Rules are unchanged. Together with the
+  phase-1 chunk index change (#487) `PROMPT_BEHAVIOR_VERSION` is `7`, so earlier LLM
+  benchmark checkpoints do not match.
 
 ### Fixed
 
+- **Standard negation covers whole lists, and relatives' findings leave the patient's list
+  (#400).** In "No evidence of hearing loss or cataract." only the first chunk was negated.
+  A forward negation cue now reaches every chunk of the list it opens, up to a sentence
+  end, a scope terminator (but, however, except, sondern, ...) or a new clause.
+  "His brother has scoliosis." affirmed scoliosis for the patient; family cues from the
+  ConText rules (mother, Bruder, ...) now move such findings to `family_history_findings`.
+  Behaviour change: standard results can report more negated terms and fewer patient
+  terms. A relative who only reports the finding stays an informant: "Mother reports
+  seizures." and "Laut Mutter Krampfanfaelle." stay the patient's.
 - **Phenopacket export keeps assertion and temporality detail (#399).** Uncertain
   findings were exported as observed; they are now left out of the packet (CLI, REST,
   MCP and the frontend collection export), and the REST export accepts
@@ -52,6 +80,11 @@ together:
   "ruled out", "negative for" and "absence of" were affirmed, and "cannot be ruled out" was
   negated. This also holds when chunking splits such a phrase. Open findings are reported
   as affirmed, not uncertain.
+- **Negated findings in full text are also retrieved without their cue (#472).** The
+  standard backend embedded the cue with the finding, so "Seizures were ruled out" pulled
+  retrieval toward unrelated terms (absence seizure). Each negated chunk's scope is now
+  also queried without the cue and the results are merged; the chunk itself is still
+  queried for affirmed content outside the scope.
 - **The LLM pipeline no longer loses findings mapped to clinical-modifier terms (#471).**
   "Patient has recurrent seizures." returned nothing, because the exact match Seizure
   cluster was removed after mapping. Such terms now leave the candidates before mapping.
@@ -75,12 +108,17 @@ together:
 - **A phase-1 item without `chunk_ids` no longer invalidates the response**;
   it is kept unanchored and counted (`phase1_unanchored_phrases`) (#489).
 - **Negated qualifiers are mapped through the regular route-and-map path**,
-  and an explicit `hpo_id: null` no longer triggers the local fallback (#490).
+  and an explicit `hpo_id: null` no longer triggers the local fallback (#490). A
+  response that omits `hpo_id` still gets the local fallback. When mapping the
+  qualifiers fails, the resolved findings are still returned and the failure is
+  counted (`negated_qualifier_failures`).
 - **Normal and negated phrases are also retrieved without their cue** (#491).
 - **Batch retrieval returns the pipeline's requested candidate count**; the
   tool cap applies to model tool calls only (#492).
 - **Ontology guard drops are counted** (`ontology_guard_dropped_terms`) and the
-  trace records whether the guard was active (#493, partial).
+  trace records whether the guard was active (#493, partial). The candidate filter
+  loads the HPO graph once per retrieval instead of once per candidate, and a missing
+  database is logged as an error once per path, then at debug level.
 - **LLM benchmark marks documents with unrecovered phase-1 groups
   `incomplete`** and retries them on resume; phase-2 failures raise
   `LLMPipelinePhaseError` so one document no longer aborts the run (#494).

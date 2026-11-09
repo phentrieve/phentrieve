@@ -258,9 +258,8 @@ async def get_dense_retriever_dependency(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     sbert_model_name_for_retriever = model_policy.model_name
 
-    # Include multi_vector in cache key to support both index types
-    retriever_cache_key = (
-        f"retriever_for_{sbert_model_name_for_retriever}_multi={multi_vector}"
+    retriever_cache_key = retriever_cache_key_for(
+        sbert_model_name_for_retriever, multi_vector
     )
 
     cached_retriever = LOADED_RETRIEVERS.get(retriever_cache_key)
@@ -315,6 +314,19 @@ async def get_dense_retriever_dependency(
     with _cache_lock:
         # Keep the first instance if a concurrent request cached one meanwhile.
         return LOADED_RETRIEVERS.setdefault(retriever_cache_key, retriever)
+
+
+def retriever_cache_key_for(model_name: str, multi_vector: bool) -> str:
+    """Cache key of a retriever; multi_vector is part of it to keep both index types."""
+    return f"retriever_for_{model_name}_multi={multi_vector}"
+
+
+def default_retriever_loaded() -> bool:
+    """Whether the retriever of the default model and index type is loaded."""
+    model_name = resolve_retrieval_model_policy(DEFAULT_MODEL).model_name
+    return (
+        retriever_cache_key_for(model_name, DEFAULT_MULTI_VECTOR) in LOADED_RETRIEVERS
+    )
 
 
 async def cleanup_model_caches() -> None:

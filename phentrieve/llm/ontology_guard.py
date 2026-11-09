@@ -17,6 +17,7 @@ run without the guard is visible in its trace (#493).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 from phentrieve.config import DEFAULT_HPO_DB_FILENAME, PHENOTYPE_ROOT
 from phentrieve.utils import get_default_data_dir, resolve_data_path
@@ -30,6 +31,15 @@ logger = logging.getLogger(__name__)
 # whole process lifetime. Keying by resolved DB path also re-loads when the data
 # root changes in-process rather than serving a stale map.
 _ANCESTORS_CACHE: dict[str, dict[str, frozenset[str]]] = {}
+# Paths whose failed load was already logged as an error. Retries keep running,
+# but repeated failures log at DEBUG so a missing graph does not flood the log.
+_REPORTED_FAILURES: set[str] = set()
+
+
+def _log_failure(cache_key: str, message: str, *args: object) -> None:
+    level = logging.DEBUG if cache_key in _REPORTED_FAILURES else logging.ERROR
+    _REPORTED_FAILURES.add(cache_key)
+    logger.log(level, message, *args)
 
 
 def _load_ancestors_map(db_path) -> dict[str, frozenset[str]]:
@@ -64,7 +74,8 @@ def _ancestors_map() -> dict[str, frozenset[str]]:
 
     try:
         if not db_path.exists():
-            logger.error(
+            _log_failure(
+                cache_key,
                 "HPO database not found: %s; ontology guard disabled "
                 "(fail open, will retry).",
                 db_path,
@@ -72,7 +83,8 @@ def _ancestors_map() -> dict[str, frozenset[str]]:
             return {}
         loaded = _load_ancestors_map(db_path)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error(
+        _log_failure(
+            cache_key,
             "Ontology guard could not load HPO graph (%s); disabled "
             "(fail open, will retry).",
             exc,
@@ -90,16 +102,30 @@ def guard_available() -> bool:
     return bool(_ancestors_map())
 
 
-def is_non_phenotypic_abnormality(term_id: str) -> bool:
+def load_guard_map() -> Mapping[str, frozenset[str]]:
+    """The ancestry map the guard uses, for callers that check many terms.
+
+    Pass it to ``is_non_phenotypic_abnormality`` so a loop over candidates
+    resolves the data path and loads the graph once, not once per term.
+    """
+    return _ancestors_map()
+
+
+def is_non_phenotypic_abnormality(
+    term_id: str, ancestors_map: Mapping[str, frozenset[str]] | None = None
+) -> bool:
     """True iff ``term_id`` is KNOWN to sit outside the Phenotypic abnormality
     (HP:0000118) subtree (a clinical modifier / course / inheritance / etc.).
 
     Unknown terms and the phenotype root itself return ``False`` (kept).
+    ``ancestors_map`` (from ``load_guard_map``) avoids a lookup per call.
     """
     term_id = (term_id or "").strip()
     if not term_id or term_id == PHENOTYPE_ROOT:
         return False
-    ancestors = _ancestors_map().get(term_id)
+    if ancestors_map is None:
+        ancestors_map = _ancestors_map()
+    ancestors = ancestors_map.get(term_id)
     if ancestors is None:
         return False  # unknown ancestry -> keep (fail open)
     return PHENOTYPE_ROOT not in ancestors

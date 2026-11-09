@@ -19,6 +19,7 @@ from phentrieve.llm.pipeline_phase1 import (
 )
 from phentrieve.llm.prompts.loader import get_batch_mapping_prompt, get_mapping_prompt
 from phentrieve.llm.types import (
+    LLMBatchMappingSelection,
     LLMBatchMappingSelections,
     LLMMappingSelection,
     LLMPhenotype,
@@ -472,6 +473,13 @@ def select_candidate_ids(
     return selected
 
 
+def _sent_empty_hpo_id(
+    mapping: LLMMappingSelection | LLMBatchMappingSelection,
+) -> bool:
+    """Whether the response contained ``hpo_id`` with a null or empty value."""
+    return "hpo_id" in mapping.model_fields_set and not mapping.hpo_id
+
+
 def explicit_null_item_ids(
     *,
     mapping_response: LLMMappingSelection | LLMBatchMappingSelections,
@@ -480,18 +488,23 @@ def explicit_null_item_ids(
     """Item ids the mapping model explicitly answered with ``hpo_id: null``.
 
     An explicit null is a decision that no candidate fits; unlike a missing
-    item or an id outside the candidates it must not trigger the local
-    fallback (#490).
+    item, an omitted ``hpo_id`` key or an id outside the candidates it must not
+    trigger the local fallback (#490). ``hpo_id`` defaults to ``None``, so only
+    a key the model actually sent counts.
     """
     if isinstance(mapping_response, LLMMappingSelection):
-        return {mapping_batch_item_id(0)} if not mapping_response.hpo_id else set()
+        return (
+            {mapping_batch_item_id(0)}
+            if _sent_empty_hpo_id(mapping_response)
+            else set()
+        )
     if not isinstance(mapping_response, LLMBatchMappingSelections):
         return set()
     batch_ids = {mapping_batch_item_id(index) for index in range(len(batch))}
     return {
         mapping.item_id
         for mapping in mapping_response.mappings
-        if not mapping.hpo_id and mapping.item_id in batch_ids
+        if _sent_empty_hpo_id(mapping) and mapping.item_id in batch_ids
     }
 
 
