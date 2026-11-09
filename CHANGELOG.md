@@ -27,8 +27,9 @@ and other-person findings in the full-text UI (#460), a readiness route, and Doc
 image security updates.
 
 Behaviour changes: standard results can report more negated terms and move relatives'
-findings to `family_history_findings`; Phenopacket exports leave uncertain findings out
-and `text process -o phenopacket_v2_json` writes one feature per term;
+findings to `family_history_findings`; Phenopacket exports leave uncertain findings out,
+a term reported both as observed and as excluded exports as one observed feature, and
+`text process -o phenopacket_v2_json` writes one feature per term;
 `PROMPT_BEHAVIOR_VERSION` is `7`, so earlier LLM benchmark checkpoints do not match.
 
 Known limitations: a negation cue still negates its whole chunk, including an affirmed
