@@ -47,8 +47,8 @@ together:
   "His brother has scoliosis." affirmed scoliosis for the patient; family cues from the
   ConText rules (mother, Bruder, ...) now move such findings to `family_history_findings`.
   Behaviour change: standard results can report more negated terms and fewer patient
-  terms. "Mother reports seizures." is read as a family finding; "Mother reports that he
-  has seizures." stays the patient's.
+  terms. A relative who only reports the finding stays an informant: "Mother reports
+  seizures." and "Laut Mutter Krampfanfaelle." stay the patient's.
 - **Standard negation no longer inverts clinical meaning (#459).** Multi-word cues such as
   "ruled out", "negative for" and "absence of" were affirmed, and "cannot be ruled out" was
   negated. This also holds when chunking splits such a phrase. Open findings are reported

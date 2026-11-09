@@ -145,6 +145,12 @@ def _experiencer(pipeline: TextProcessingPipeline, text: str, needle: str):
         ),
         ("Family history of deafness.", "deafness", FAMILY_EXPERIENCER),
         ("Mother reports that he has seizures.", "seizures", None),
+        # A relative who only reports the finding is an informant, not the
+        # experiencer.
+        ("Mother reports frequent seizures at night.", "seizures", None),
+        ("The parents report developmental delay.", "developmental delay", None),
+        ("According to the father, ataxia since infancy.", "ataxia", None),
+        ("His brother was observed with scoliosis.", "scoliosis", FAMILY_EXPERIENCER),
         ("The patient has scoliosis.", "scoliosis", None),
         ("Her sister is healthy. She has scoliosis.", "scoliosis", None),
     ],
@@ -153,10 +159,18 @@ def test_family_experiencer(en, text, needle, expected) -> None:
     assert _experiencer(en, text, needle) == expected
 
 
-def test_family_experiencer_german(de) -> None:
-    assert _experiencer(de, "Der Vater hat eine Skoliose.", "skoliose") == (
-        FAMILY_EXPERIENCER
-    )
+@pytest.mark.parametrize(
+    ("text", "needle", "expected"),
+    [
+        ("Der Vater hat eine Skoliose.", "skoliose", FAMILY_EXPERIENCER),
+        ("Die Eltern berichten eine Entwicklungsverzoegerung.", "entwicklung", None),
+        ("Die Mutter bemerkte eine Muskelhypotonie.", "muskelhypotonie", None),
+        ("Laut Mutter Krampfanfaelle seit Geburt.", "krampfanfaelle", None),
+        ("Nach Angaben der Mutter bestehen Krampfanfaelle.", "krampfanfaelle", None),
+    ],
+)
+def test_family_experiencer_german(de, text, needle, expected) -> None:
+    assert _experiencer(de, text, needle) == expected
 
 
 def test_standard_backend_lists_family_findings_apart(en, mocker) -> None:

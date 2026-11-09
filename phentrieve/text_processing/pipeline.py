@@ -35,6 +35,21 @@ logger = logging.getLogger(__name__)
 _SENTENCE_BREAKS = (".", "!", "?", ";", "\n")
 _SUBJECT_DEPS = ("nsubj", "nsubjpass", "nsubj:pass", "sb")
 FAMILY_EXPERIENCER = "family_history"
+# A relative who reports, not has, the finding (en/de/fr/es/nl verb lemmas).
+_REPORTING_LEMMAS = frozenset(
+    {
+        "report", "notice", "describe", "state", "mention", "observe", "say",
+        "tell", "berichten", "bemerken", "schildern", "beschreiben",
+        "angeben", "erzählen", "beobachten", "rapporter", "signaler",
+        "décrire", "remarquer", "observer", "raconter", "referir", "informar",
+        "describir", "notar", "observar", "relatar", "contar", "melden",
+        "vertellen", "beschrijven", "opmerken", "merken", "zeggen",
+    }
+)  # fmt: skip
+# Heads that mark the relative as the source: "according to", "laut", "nach Angaben".
+_SOURCE_LEMMAS = frozenset(
+    {"accord", "according", "laut", "angabe", "selon", "según", "volgens"}
+)
 
 
 def _cue_spans(text_lower: str, cues: tuple[str, ...]) -> list[tuple[int, int]]:
@@ -99,6 +114,27 @@ class _SentenceContext:
             "Fin" in t.morph.get("VerbForm") or t.dep_ in _SUBJECT_DEPS
             for t in self.tokens(start, end)
         )
+
+    def is_informant(self, start: int, end: int) -> bool:
+        """True if the relative in [start, end) only reports the finding.
+
+        "Mother reports seizures" / "Laut Mutter Krampfanfaelle" describe the
+        patient: the relative is the subject of a reporting verb or the source
+        of "according to" / "laut" / "nach Angaben".
+        """
+        for token in self.tokens(start, end):
+            # Active subjects only: "the brother was observed with ..." is his.
+            if (
+                token.dep_ in ("nsubj", "sb")
+                and token.head.lemma_.lower() in _REPORTING_LEMMAS
+            ):
+                return True
+            if any(
+                ancestor.lemma_.lower() in _SOURCE_LEMMAS
+                for ancestor in list(token.ancestors)[:2]
+            ):
+                return True
+        return False
 
 
 def _propagate_list_negation(
@@ -179,7 +215,9 @@ def _mark_family_experiencer(
         cue_spans = context.cues(context.family, context.sentence_start(start), end)
         if not cue_spans:
             continue
-        cue_end = cue_spans[-1][1]
+        cue_start, cue_end = cue_spans[-1]
+        if context.is_informant(cue_start, cue_end):
+            continue
         if context.cues(context.terminate, cue_end, end) or any(
             t.dep_ in _SUBJECT_DEPS for t in context.tokens(cue_end, end)
         ):
