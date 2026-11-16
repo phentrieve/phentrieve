@@ -75,6 +75,7 @@
     "acceptButton": "Entiendo y acepto"
   },
   "queryInterface": {
+    "textNotStored": "Por privacidad, el texto no se guarda en el navegador y deja de mostrarse tras recargar la página. Los resultados se conservan.",
     "title": "Phentrieve",
     "subtitle": "Mapeo de términos HPO para descripciones de fenotipos en investigación",
     "welcomeText": "Phentrieve es una herramienta de investigación impulsada por IA que mapea texto de fenotipos a términos estandarizados de la Ontología de Fenotipos Humanos (HPO) para la anotación en investigación y el descubrimiento de conocimiento.",

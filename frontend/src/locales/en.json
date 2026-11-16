@@ -75,6 +75,7 @@
     "acceptButton": "I understand and agree"
   },
   "queryInterface": {
+    "textNotStored": "For privacy, the text is not stored in the browser and is no longer shown after a reload. The results are kept.",
     "title": "Phentrieve",
     "subtitle": "HPO term mapping for research phenotype text",
     "welcomeText": "Phentrieve is an AI-powered research tool that maps phenotype text to standardized Human Phenotype Ontology (HPO) terms for research annotation and knowledge discovery.",

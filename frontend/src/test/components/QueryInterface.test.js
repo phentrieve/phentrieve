@@ -876,6 +876,27 @@ describe('QueryInterface (characterization)', () => {
     expect(summary).not.toContain('[redacted]');
   });
 
+  it('explains a reloaded note instead of showing the placeholder or counting it', async () => {
+    const wrapper = await mountQueryInterface();
+
+    wrapper.vm.conversationStore.queryHistory.unshift({
+      id: 'turn-reloaded-note',
+      query: '[redacted]',
+      redactedQuery: '[redacted]',
+      type: 'textProcess',
+      loading: false,
+      error: null,
+      response: { aggregated_hpo_terms: [], processed_chunks: [] },
+    });
+    await wrapper.vm.$nextTick();
+
+    const summary = wrapper.find('[data-testid="user-note-summary"]').text();
+
+    expect(summary).toContain('not stored in the browser');
+    expect(summary).not.toContain('[redacted]');
+    expect(summary).not.toMatch(/\d+ words?/);
+  });
+
   it('uses session-only raw text for query-mode history when durable history is redacted', async () => {
     const wrapper = await mountQueryInterface();
 

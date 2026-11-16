@@ -75,6 +75,7 @@
     "acceptButton": "Ik begrijp het en ga akkoord"
   },
   "queryInterface": {
+    "textNotStored": "Om privacyredenen wordt de tekst niet in de browser opgeslagen en is deze na herladen niet meer zichtbaar. De resultaten blijven behouden.",
     "title": "Phentrieve",
     "subtitle": "HPO-termmapping voor fenotypebeschrijvingen in onderzoek",
     "welcomeText": "Phentrieve is een door AI aangedreven onderzoekstool die fenotypetekst koppelt aan gestandaardiseerde Human Phenotype Ontology (HPO)-termen, voor annotatie in onderzoek en kennisontdekking.",

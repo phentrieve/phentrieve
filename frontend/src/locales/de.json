@@ -75,6 +75,7 @@
     "acceptButton": "Ich habe verstanden und stimme zu"
   },
   "queryInterface": {
+    "textNotStored": "Der Text wird aus Datenschutzgründen nicht im Browser gespeichert und ist nach dem Neuladen nicht mehr sichtbar. Die Ergebnisse bleiben erhalten.",
     "title": "Phentrieve",
     "subtitle": "HPO-Begriffszuordnung für Phänotypbeschreibungen in der Forschung",
     "welcomeText": "Phentrieve ist ein KI-gestütztes Forschungswerkzeug, das Phänotyptexte für die Forschungsannotation und Wissensgewinnung standardisierten Begriffen der Human Phenotype Ontology (HPO) zuordnet.",
