@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -9,6 +10,8 @@ from phentrieve.benchmark.data_loader import (
     _validate_document_benchmark_payload,
     load_json_benchmark_data,
     load_phenobert_data,
+    normalize_benchmark_assertion,
+    parse_gold_terms,
 )
 
 
@@ -76,3 +79,75 @@ def test_load_phenobert_data_accepts_raghpo_paper_datasets(tmp_path) -> None:
             "evidence_spans": [],
         }
     ]
+
+
+def _write_directory_document(base_dir, dataset: str, doc_id: str) -> None:
+    annotations_dir = base_dir / dataset / "annotations"
+    annotations_dir.mkdir(parents=True, exist_ok=True)
+    (annotations_dir / f"{doc_id}.json").write_text(
+        json.dumps(
+            {
+                "doc_id": doc_id,
+                "full_text": "The child has a wide thumb.",
+                "annotations": [
+                    {
+                        "hpo_id": "HP:0011304",
+                        "label": "Broad thumb",
+                        "assertion_status": "affirmed",
+                        "evidence_spans": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _incomplete_copy_warnings(caplog) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING and "#520" in record.getMessage()
+    ]
+
+
+@pytest.mark.parametrize("raw", ["normal", " Normal ", "NORMAL"])
+def test_normal_assertion_scores_as_absent(raw) -> None:
+    assert normalize_benchmark_assertion(raw, reject_unknown=True) == "ABSENT"
+    assert normalize_benchmark_assertion(raw, reject_unknown=False) == "ABSENT"
+
+
+def test_normal_gold_term_is_parsed_as_absent() -> None:
+    assert parse_gold_terms([{"id": "HP:0011304", "assertion": "normal"}]) == [
+        ("HP:0011304", "ABSENT")
+    ]
+
+
+@pytest.mark.parametrize("dataset", ["ID_68", "all"])
+def test_load_phenobert_data_warns_once_for_incomplete_id_68(
+    tmp_path, caplog, dataset
+) -> None:
+    _write_directory_document(tmp_path, "ID_68", "ID_68_1")
+    _write_directory_document(tmp_path, "ID_68", "ID_68_2")
+    _write_directory_document(tmp_path, "GeneReviews", "GeneReviews_1")
+
+    with caplog.at_level(logging.WARNING, logger="phentrieve.benchmark.data_loader"):
+        payload = load_phenobert_data(tmp_path, dataset=dataset)
+
+    assert sum(doc["source_dataset"] == "ID_68" for doc in payload["documents"]) == 2
+    warnings = _incomplete_copy_warnings(caplog)
+    assert len(warnings) == 1
+    assert "ID-68" in warnings[0]
+    assert "incomplete" in warnings[0]
+    assert "reported results" in warnings[0]
+
+
+def test_load_phenobert_data_does_not_warn_for_other_dataset(tmp_path, caplog) -> None:
+    _write_directory_document(tmp_path, "ID_68", "ID_68_1")
+    _write_directory_document(tmp_path, "GeneReviews", "GeneReviews_1")
+
+    with caplog.at_level(logging.WARNING, logger="phentrieve.benchmark.data_loader"):
+        payload = load_phenobert_data(tmp_path, dataset="GeneReviews")
+
+    assert [doc["id"] for doc in payload["documents"]] == ["GeneReviews_1"]
+    assert _incomplete_copy_warnings(caplog) == []

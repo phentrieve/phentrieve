@@ -162,7 +162,9 @@ Unlike retrieval benchmarks (which test single-term lookups), extraction benchma
 
 ### Test Data Format
 
-Extraction benchmarks use the PhenoBERT directory format:
+Extraction benchmarks use the PhenoBERT directory format. The bundled copy
+shown here is deprecated, known to be incomplete (#520), and kept only as a
+format fixture; do not use it for reported results:
 
 ```
 tests/data/en/phenobert/
