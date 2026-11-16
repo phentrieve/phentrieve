@@ -89,8 +89,7 @@
                       rel="noopener noreferrer"
                       class="hpo-link"
                     >
-                      <strong class="mr-1">{{ match.hpo_id }}</strong
-                      >{{ match.name }}
+                      <strong class="mr-1">{{ match.hpo_id }}</strong>{{ match.name }}
                       <v-icon size="x-small" class="ml-1" color="primary">mdi-open-in-new</v-icon>
                     </a>
                   </div>
