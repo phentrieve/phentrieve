@@ -6,8 +6,10 @@ a future localized (or edited) `two_phase` extraction prompt drops either:
   1. the negation-scope rules: a negation cue applies to every finding of a
      coordinated list it introduces, also across chunk lines, up to a scope
      terminator (#379); and in "X without Y" only Y is negated, and
-  2. a `negated_qualifier` few-shot example that demonstrates the rule with a
-     real (non-null) value.
+  2. a worked `negated_qualifier` example in the system prompt that shows the
+     rule with a real (non-null) value. The few-shot examples of the extraction
+     template were never sent to the model and are removed (#378), so the
+     example is checked in the system prompt.
 
 Only true *extraction* templates are checked -- the `*_mapping.yaml` and
 `*_mapping_batch.yaml` templates are a distinct prompt family (mapping
@@ -19,6 +21,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import yaml
 
 from phentrieve.llm.prompts.loader import PACKAGE_TEMPLATES_DIR
 
@@ -39,9 +43,10 @@ _NEGATION_SCOPE_MARKERS = (
 # The narrow rule of prompt v3.2.0 contradicts the coordination scope (#379).
 _RETIRED_NEGATION_MARKERS = ("negates ONLY",)
 
-# A negated_qualifier few-shot must show a real (non-null, non-empty) value,
-# not just "negated_qualifier": null.
-_NEGATED_QUALIFIER_VALUE_PATTERN = re.compile(r'"negated_qualifier"\s*:\s*"[^"]+"')
+# The worked example must show a real (non-null, non-empty) value, not just
+# "negated_qualifier": null. Both the prose form (negated_qualifier "Y") and the
+# JSON form ("negated_qualifier": "Y") count.
+_NEGATED_QUALIFIER_VALUE_PATTERN = re.compile(r'negated_qualifier"?\s*:?\s*"[^"]+"')
 
 
 def _is_extraction_template(path: Path) -> bool:
@@ -89,12 +94,15 @@ def test_extraction_templates_drop_the_narrow_negation_rule() -> None:
             )
 
 
-def test_extraction_templates_keep_negated_qualifier_few_shot() -> None:
+def test_extraction_templates_keep_negated_qualifier_example() -> None:
     templates = _extraction_templates()
     assert templates, "expected at least one extraction two_phase template"
 
     for path in templates:
-        text = path.read_text(encoding="utf-8")
-        assert _NEGATED_QUALIFIER_VALUE_PATTERN.search(text), (
-            f"{path.name} is missing a negated_qualifier few-shot with a non-null value"
+        system_prompt = yaml.safe_load(path.read_text(encoding="utf-8"))[
+            "system_prompt"
+        ]
+        assert _NEGATED_QUALIFIER_VALUE_PATTERN.search(system_prompt), (
+            f"{path.name} is missing a negated_qualifier example with a non-null "
+            "value in its system prompt"
         )
