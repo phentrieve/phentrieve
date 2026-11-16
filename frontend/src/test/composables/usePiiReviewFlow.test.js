@@ -13,7 +13,7 @@ describe('usePiiReviewFlow', () => {
       isAutoSubmit: false,
     });
 
-    expect(result.hasFindings).toBe(true);
+    expect(result.needsReview).toBe(true);
     expect(flow.piiReviewDialogVisible.value).toBe(true);
     expect(flow.pendingPiiSubmission.value).toMatchObject({
       text: 'MRN: AB-123456 with seizures',
@@ -33,7 +33,7 @@ describe('usePiiReviewFlow', () => {
       isAutoSubmit: false,
     });
 
-    expect(result.hasFindings).toBe(false);
+    expect(result.needsReview).toBe(false);
     expect(result.scanResult.hasFindings).toBe(false);
     expect(flow.piiReviewDialogVisible.value).toBe(false);
     expect(flow.pendingPiiSubmission.value).toBeNull();
@@ -66,25 +66,48 @@ describe('usePiiReviewFlow', () => {
     expect(flow.pendingPiiSubmission.value).toBeNull();
   });
 
-  it('redacts PII in the input without submitting', () => {
+  it('does not open review for review-confidence findings alone', () => {
     const flow = usePiiReviewFlow();
-    const setQueryText = vi.fn();
-    const submitQueryText = vi.fn();
 
-    flow.scanSubmissionForPii({
-      text: 'Email jane@example.org and seizures',
-      locale: 'en',
-      useTextProcessMode: false,
-      isAutoSubmit: false,
+    const result = flow.scanSubmissionForPii({
+      text: 'Herr Popp, seen on 12/03/2024, has seizures',
+      locale: 'de',
     });
 
-    const redaction = flow.redactPiiInInput({ setQueryText });
-
-    expect(redaction.text).toContain('[REDACTED_EMAIL]');
-    expect(setQueryText).toHaveBeenCalledWith(expect.stringContaining('[REDACTED_EMAIL]'));
-    expect(submitQueryText).not.toHaveBeenCalled();
+    expect(result.needsReview).toBe(false);
+    expect(result.scanResult.hasFindings).toBe(true);
     expect(flow.piiReviewDialogVisible.value).toBe(false);
-    expect(flow.pendingPiiSubmission.value).toBeNull();
+  });
+
+  it('redacts only the findings the user left selected', async () => {
+    const flow = usePiiReviewFlow();
+    const submitQueryText = vi.fn().mockResolvedValue(undefined);
+    const text = 'Email jane@example.org, MRN: AB-123456, seen on 12/03/2024';
+
+    const { scanResult } = flow.scanSubmissionForPii({ text, locale: 'en' });
+    const idOf = (category) => scanResult.findings.find((f) => f.category === category).id;
+
+    await flow.continueWithPiiRedaction({
+      submitQueryText,
+      selectedFindingIds: [idOf('email'), idOf('date')],
+    });
+
+    expect(submitQueryText.mock.calls[0][0].currentQuery).toBe(
+      'Email [REDACTED_EMAIL], MRN: AB-123456, seen on [REDACTED_DATE]'
+    );
+  });
+
+  it('submits the original text when every finding is deselected', async () => {
+    const flow = usePiiReviewFlow();
+    const submitQueryText = vi.fn().mockResolvedValue(undefined);
+    const text = 'MRN: AB-123456 with seizures';
+
+    flow.scanSubmissionForPii({ text, locale: 'en' });
+    await flow.continueWithPiiRedaction({ submitQueryText, selectedFindingIds: [] });
+
+    expect(submitQueryText).toHaveBeenCalledWith(
+      expect.objectContaining({ currentQuery: text, redactionApplied: false })
+    );
   });
 
   it('cancels a pending review without mutating input or submitting', () => {

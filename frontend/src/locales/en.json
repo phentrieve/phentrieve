@@ -111,14 +111,10 @@
     "error": "Error: {message}",
     "piiReview": {
       "title": "Possible identifiers detected",
-      "description": "Phentrieve found possible personal identifiers in this text. Review them before submitting.",
-      "willRedact": "Will be redacted locally",
-      "needsReview": "Needs review",
-      "overrideNotice": "High-confidence identifiers will be redacted locally before submission. Other possible identifiers may remain if you continue.",
+      "description": "Phentrieve found possible personal identifiers in this text. Ticked items are replaced by a placeholder in your browser before the text is sent. Untick anything that is not an identifier.",
       "safetyAid": "This is a safety aid. It cannot guarantee that all personal identifiers are detected or that the text is de-identified.",
-      "cancel": "Review text",
-      "redact": "Redact in text",
-      "continue": "Continue with local redaction",
+      "cancel": "Cancel",
+      "continue": "Send",
       "categories": {
         "email": "Email",
         "phone": "Phone",

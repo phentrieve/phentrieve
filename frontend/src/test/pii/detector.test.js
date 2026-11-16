@@ -30,6 +30,49 @@ describe('scanPii', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it.each([
+    ['Hb 12.3 g/dl, Thrombozyten 250000/µl, CK 1250 U/l, Kreatinin 0.9 mg/dl.'],
+    ['arr[GRCh37] 22q11.21(18912231_21465672)x1. OMIM 154700. chr2:166848646. PMID 12345678.'],
+    ['Blutdruck 120/80 mmHg. Visus 0.4/0.5. 46,XY.'],
+    ['St. p. Appendektomie 2010, aktuell Hb 12.5 normal.'],
+    ['Dr. Meier sah den Patienten 2019 mit Krampfanfall und Fieber.'],
+    ['Thrombozyten typically 250000/µl. Leukozyten im Mittel 12345678.'],
+    ['Verlauf 01.03.2019 bis 05.06.2019 14 Tage. Ratio 0.123456789.'],
+  ])('does not flag clinical values as high-confidence identifiers: %s', (text) => {
+    for (const locale of ['en', 'de']) {
+      expect(scanPii(text, { locale }).summary.high).toEqual({});
+    }
+  });
+
+  it.each([
+    ['Tel. 030 12345678'],
+    ['Erreichbar unter 0171 1234567'],
+    ['Call 202-555-0199'],
+    ['Fax: 12345678'],
+    ['Phone number: 202-555-0199'],
+    ['Reachable at (202) 555-0199'],
+    ['Tel.-Nr.: 12345678'],
+  ])('still detects dialled phone numbers: %s', (text) => {
+    expect(scanPii(text, { locale: 'de' }).summary.high.phone).toBe(1);
+  });
+
+  it('covers a dot-separated French phone number completely', () => {
+    const text = 'Joignable au 01.23.45.67.89';
+    const { findings } = scanPii(text, { locale: 'fr' });
+    expect(findings).toHaveLength(1);
+    expect(text.slice(findings[0].start, findings[0].end)).toBe('01.23.45.67.89');
+  });
+
+  it('detects a house number with a letter suffix', () => {
+    const result = scanPii('Lives at 221B Baker Street.', { locale: 'en' });
+    expect(result.summary.high.address).toBe(1);
+  });
+
+  it('detects an English street address', () => {
+    const result = scanPii('Lives at 12 Main Street, Springfield.', { locale: 'en' });
+    expect(result.summary.high.address).toBe(1);
+  });
+
   it('detects English medical record labels', () => {
     const result = scanPii('MRN: AB-123456. Patient has seizures.', { locale: 'en' });
     expect(result.summary.high.medical_record).toBe(1);
@@ -80,86 +123,22 @@ describe('scanPii', () => {
     expect(result.findings[0]).not.toHaveProperty('text');
   });
 
+  // Untitled-name detection was removed: capitalised phenotype phrases are
+  // indistinguishable from "Firstname Lastname" without a name lexicon.
   it.each([
-    ['en', 'John Smith has seizures'],
-    ['de', 'Bernt Popp ist dumm'],
-    ['fr', 'Jean Dupont a des crises'],
-    ['es', 'María García tiene convulsiones'],
-    ['nl', 'Jan van Dijk heeft aanvallen'],
-  ])('marks %s untitled person names as review confidence', (locale, text) => {
-    const result = scanPii(text, { locale });
-
-    expect(result.summary.review.person_name).toBe(1);
-    expect(result.findings[0]).not.toHaveProperty('text');
-  });
-
-  it.each([
-    ['de', 'Bernt Popp ist dumm'],
-    ['fr', 'Jean Dupont a des crises'],
-    ['es', 'María García tiene convulsiones'],
-    ['nl', 'Jan van Dijk heeft aanvallen'],
-  ])('marks %s untitled person names when selected language is English', (_locale, text) => {
-    const result = scanPii(text, { locale: 'en' });
-
-    expect(result.summary.review.person_name).toBe(1);
-    expect(result.findings[0]).not.toHaveProperty('text');
-  });
-
-  it('keeps context words outside untitled person-name spans', () => {
-    const text = 'Patient John Smith has seizures';
-    const result = scanPii(text, { locale: 'en' });
-    const finding = result.findings.find((item) => item.category === 'person_name');
-
-    expect(finding).toBeDefined();
-    expect(finding.start).toBe(text.indexOf('John'));
-    expect(finding.end).toBe(text.indexOf(' has seizures'));
-  });
-
-  it.each([
+    ['Global Developmental Delay, Atrial Septal Defect and Short Stature were noted.'],
+    ['The patient has Intellectual Disability, Hearing Loss and Cleft Palate.'],
+    ['Der Patient zeigt eine Globale Entwicklungsverzögerung.'],
+    ['Hypoplasie der Lunge und Aplasie der Niere.'],
+    ['Aortenwurzel Dilatation. Schwere Sprachentwicklungsverzögerung.'],
     ['Pectus Carinatum was noted.'],
-    ['Down Syndrome was discussed.'],
-    ['BioLORD Model returned results.'],
-    ['Brain MRI was normal.'],
-    ['HP:0002779 Tracheomalacia'],
-  ])('does not mark clinical or domain phrases as untitled names: %s', (text) => {
-    const result = scanPii(text, { locale: 'en' });
-
-    expect(result.summary.review.person_name).toBeUndefined();
-  });
-
-  it.each([
-    ['Der Patient hat keine Krampfanfälle. Eine Ataxie wurde ausgeschlossen.'],
-    ['Die Patientin hat eine Mikrozephalie. Der Vater hat eine Epilepsie.'],
-    ['Rezidivierende Krampfanfälle seit der Kindheit.'],
     ['Beidseitige Ptosis und Generalisierte Anfälle.'],
-    ['Keine Ataxie. Muskuläre Hypotonie.'],
-    ['Low Hämo-\nglobin level.'],
-  ])('does not mark German clinical sentences as untitled names: %s', (text) => {
-    const result = scanPii(text, { locale: 'de' });
-
-    expect(result.summary.review.person_name).toBeUndefined();
-  });
-
-  it.each([
-    ['Bernt Popp ist dumm'],
+    ['John Smith has seizures'],
     ['Patientin Anna Müller hat Fieber'],
-    ['Maria Schmidt, 34 J.'],
-  ])('still marks real German names: %s', (text) => {
-    const result = scanPii(text, { locale: 'de' });
-
-    expect(result.summary.review.person_name).toBe(1);
-  });
-
-  it.each([
-    ['Patient: Jan van der Berg, geboren 2010.', 'Jan van der Berg'],
-    ['Patientin Karla von der Heide hat Fieber', 'Karla von der Heide'],
-  ])('covers surnames with the particle "der": %s', (text, name) => {
-    const result = scanPii(text, { locale: 'de' });
-    const covered = result.findings
-      .filter((f) => f.category === 'person_name')
-      .some((f) => f.start <= text.indexOf(name) && f.end >= text.indexOf(name) + name.length);
-
-    expect(covered).toBe(true);
+  ])('does not mark capitalised phrases without a title as names: %s', (text) => {
+    for (const locale of ['en', 'de']) {
+      expect(scanPii(text, { locale }).summary.review.person_name).toBeUndefined();
+    }
   });
 
   it('detects French NIR labels', () => {

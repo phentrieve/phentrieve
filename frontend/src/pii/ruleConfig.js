@@ -14,92 +14,6 @@ const TITLED_NAME_RULE_CONFIG = Object.freeze({
   nl: { id: 'nl.titled_name', titles: ['Dhr', 'Mevrouw', 'Mw', 'Dr', 'Prof'] },
 });
 
-export const UNTITLED_NAME_RULE_CONFIG = Object.freeze({
-  id: 'global.untitled_name',
-  category: 'person_name',
-  confidence: 'review',
-  redactionToken: '[REDACTED_NAME]',
-  enabled: true,
-  minScore: 2,
-  minNameTokens: 2,
-  maxTokens: 4,
-  contextWindowChars: 32,
-  particles: ['de', 'del', 'da', 'di', 'du', 'le', 'la', 'van', 'von', 'der', 'den'],
-  contextWords: [
-    'called',
-    'case',
-    'name',
-    'patient',
-    'subject',
-    'Nachname',
-    'Name',
-    'Patient',
-    'Vorname',
-    'Naam',
-    'Patiënt',
-    'Nom',
-    'Patient',
-    'Paciente',
-    'paciente',
-  ],
-  blockedTerms: [
-    'abnormality',
-    'biolord',
-    'called',
-    'carinatum',
-    'case',
-    'clinical',
-    'dem',
-    'des',
-    'die',
-    'das',
-    'der',
-    'disease',
-    'down',
-    'ein',
-    'eine',
-    'einem',
-    'einen',
-    'einer',
-    'eines',
-    'er',
-    'es',
-    'high',
-    'hpo',
-    'ihr',
-    'ihre',
-    'kein',
-    'keine',
-    'keinem',
-    'keinen',
-    'keiner',
-    'low',
-    'model',
-    'naam',
-    'nachname',
-    'name',
-    'nom',
-    'paciente',
-    'patient',
-    'pectus',
-    'phenotype',
-    'sein',
-    'seine',
-    'sie',
-    'syndrome',
-    'term',
-    'the',
-    'this',
-    'tracheomalacia',
-    'vorname',
-  ],
-  // German capitalizes nouns, so a sentence-initial adjective plus a noun looks
-  // like a name: "Rezidivierende Krampfanfälle", "Beidseitige Ptosis".
-  nonNameFirstTokenPattern: /(?:ierte|ierende|ende|ige|iger|liche|licher|ische|ischer|normale)$/iu,
-  nonNameLastTokenPattern:
-    /(?:ataxie|epilepsie|tonie|phalie|plegie|parese|plasie|trophie|pathie|algie|ämie|aemie|itis|anfall|anfälle|störung|schmerzen|syndrom|krankheit)$/iu,
-});
-
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
@@ -279,7 +193,9 @@ export const ADDRESS_RULES = Object.freeze({
   fr: /\b(?:rue|avenue|av\.|boulevard|bd|chemin|place)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b\d{5}\b/giu,
   es: /\b(?:calle|c\/|avenida|avda\.|paseo|plaza)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b\d{5}\b/giu,
   nl: /\b(?:straat|laan|weg|plein|adres)\s*[:#-]?\s+[^\n,]{0,80}\d+[A-Z]?\b[^\n]{0,80}\b\d{4}\s?[A-Z]{2}\b/giu,
-  en: /\b(?:street|st\.|road|rd\.|avenue|ave\.|drive|dr\.)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b[A-Z0-9][A-Z0-9 -]{3,10}\b/giu,
+  // House number, capitalised street name, capitalised street word. Case-sensitive and
+  // without "St."/"Dr.": those matched "St. p. ..." and "Dr. Meier ... 2019 ..." sentences.
+  en: /\b\d{1,5}[A-Za-z]?\s+[A-Z][\w' -]{1,40}?\s(?:Street|Road|Rd\.|Avenue|Ave\.|Drive|Lane|Boulevard|Blvd\.)/gu,
 });
 
 export const MEDICAL_ID_VALUE_PATTERN = ID_VALUE_PATTERN;

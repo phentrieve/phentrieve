@@ -1182,7 +1182,7 @@ describe('QueryInterface (characterization)', () => {
     expect(wrapper.vm.piiReviewDialogVisible).toBe(true);
   });
 
-  it('opens PII review for configured titled names even when query language is English', async () => {
+  it('does not block submission for review-confidence findings such as titled names', async () => {
     const wrapper = await mountQueryInterface();
     await flushPromises();
 
@@ -1195,27 +1195,8 @@ describe('QueryInterface (characterization)', () => {
     await wrapper.vm.submitQuery();
     await wrapper.vm.$nextTick();
 
-    expect(PhentrieveService.queryHpo).not.toHaveBeenCalled();
-    expect(wrapper.vm.piiReviewDialogVisible).toBe(true);
-    expect(wrapper.vm.pendingPiiSubmission.scanResult.summary.review.person_name).toBe(1);
-  });
-
-  it('opens PII review for untitled names before query-mode network submission', async () => {
-    const wrapper = await mountQueryInterface();
-    await flushPromises();
-
-    await setVmState(wrapper, {
-      queryText: 'Bernt Popp ist dumm',
-      selectedLanguage: 'en',
-      forceEndpointMode: 'query',
-    });
-
-    await wrapper.vm.submitQuery();
-    await wrapper.vm.$nextTick();
-
-    expect(PhentrieveService.queryHpo).not.toHaveBeenCalled();
-    expect(wrapper.vm.piiReviewDialogVisible).toBe(true);
-    expect(wrapper.vm.pendingPiiSubmission.scanResult.summary.review.person_name).toBe(1);
+    expect(wrapper.vm.piiReviewDialogVisible).toBe(false);
+    expect(PhentrieveService.queryHpo).toHaveBeenCalled();
   });
 
   it('opens PII review before full-text network submission', async () => {
@@ -1233,24 +1214,6 @@ describe('QueryInterface (characterization)', () => {
     expect(PhentrieveService.processText).not.toHaveBeenCalled();
     expect(wrapper.vm.conversationStore.queryHistory).toHaveLength(0);
     expect(wrapper.vm.piiReviewDialogVisible).toBe(true);
-  });
-
-  it('opens PII review for untitled names before full-text network submission', async () => {
-    const wrapper = await mountQueryInterface();
-    await flushPromises();
-
-    await setVmState(wrapper, {
-      queryText: 'Bernt Popp ist dumm',
-      selectedLanguage: 'en',
-      forceEndpointMode: 'textProcess',
-    });
-
-    await wrapper.vm.submitQuery();
-    await wrapper.vm.$nextTick();
-
-    expect(PhentrieveService.processText).not.toHaveBeenCalled();
-    expect(wrapper.vm.piiReviewDialogVisible).toBe(true);
-    expect(wrapper.vm.pendingPiiSubmission.scanResult.summary.review.person_name).toBe(1);
   });
 
   it('clears autoSubmit from the URL when manual submission opens PII review', async () => {
@@ -1327,21 +1290,5 @@ describe('QueryInterface (characterization)', () => {
     expect(serializedLogs).not.toContain('jane@example.org');
     expect(serializedLogs).not.toContain('Email jane');
     expect(serializedLogs).toContain('piiSummary');
-  });
-
-  it('redacts in input without submitting', async () => {
-    const wrapper = await mountQueryInterface();
-    await flushPromises();
-
-    await setVmState(wrapper, {
-      queryText: 'Email jane@example.org and seizures',
-      forceEndpointMode: 'query',
-    });
-
-    await wrapper.vm.submitQuery();
-    await wrapper.vm.redactPiiInInput();
-
-    expect(wrapper.vm.queryText).toContain('[REDACTED_EMAIL]');
-    expect(PhentrieveService.queryHpo).not.toHaveBeenCalled();
   });
 });
