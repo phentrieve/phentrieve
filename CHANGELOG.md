@@ -18,6 +18,24 @@ together:
 
 ## [Unreleased]
 
+### Fixed
+
+- **The browser PII check no longer flags phenotypes and lab values.** Capitalised phrases
+  ("Short Stature", "Hypoplasie der Lunge") were marked as names, and lab values, blood
+  pressure, genomic coordinates and "St. p."/"Dr." sentences as phone numbers or
+  addresses. Names without a title are no longer detected; phone numbers need an
+  international prefix, a trunk zero, a phone label or North American formatting.
+  A record number now covers only the number, not the words after it ("MRN: AB-123456
+  with seizures" lost "with seizures"), "mRNA" is no longer read as "MRN", and enzyme EC
+  numbers are no longer high-confidence IP addresses.
+
+### Changed
+
+- **The PII dialog lists each finding with its text and a checkbox.** Unticked findings
+  are sent unchanged, so false positives can be switched off. The dialog only opens for
+  high-confidence findings; titled names and bare dates no longer block submission. The
+  "Redact in text" button is gone.
+
 ## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
 
 Standard-pipeline negation of whole lists and family findings (#400), multi-word and

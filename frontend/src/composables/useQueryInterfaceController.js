@@ -331,7 +331,7 @@ export function useQueryInterfaceController({
       isAutoSubmit,
     });
 
-    if (piiReviewResult.hasFindings) {
+    if (piiReviewResult.needsReview) {
       clearAutoSubmitQueryParamIfNeeded(route, router, isAutoSubmit, logService);
       return;
     }
@@ -349,17 +349,10 @@ export function useQueryInterfaceController({
     activeRequest?.abort();
   }
 
-  async function continueWithPiiRedaction() {
+  async function continueWithPiiRedaction(selectedFindingIds) {
     return piiReviewFlow.continueWithPiiRedaction({
       submitQueryText,
-    });
-  }
-
-  function redactPiiInInput() {
-    return piiReviewFlow.redactPiiInInput({
-      setQueryText(value) {
-        state.queryText.value = value;
-      },
+      selectedFindingIds,
     });
   }
 
@@ -370,6 +363,5 @@ export function useQueryInterfaceController({
     submitQuery,
     cancelQuery,
     continueWithPiiRedaction,
-    redactPiiInInput,
   };
 }

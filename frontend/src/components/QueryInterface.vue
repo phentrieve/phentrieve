@@ -174,9 +174,9 @@
 
     <PiiReviewDialog
       v-model="piiReviewDialogVisible"
-      :summary="pendingPiiSubmission?.scanResult?.summary || { high: {}, review: {} }"
+      :text="pendingPiiSubmission?.text || ''"
+      :findings="pendingPiiSubmission?.scanResult?.findings || []"
       @cancel="cancelPiiReview"
-      @redact="redactPiiInInput"
       @continue="continueWithPiiRedaction"
     />
   </div>
@@ -545,12 +545,8 @@ function cancelPiiReview() {
   piiReviewFlow.cancelPiiReview();
 }
 
-function redactPiiInInput() {
-  return queryInterfaceController.redactPiiInInput();
-}
-
-function continueWithPiiRedaction() {
-  return queryInterfaceController.continueWithPiiRedaction();
+function continueWithPiiRedaction(selectedFindingIds) {
+  return queryInterfaceController.continueWithPiiRedaction(selectedFindingIds);
 }
 
 // Initialization (formerly created())
