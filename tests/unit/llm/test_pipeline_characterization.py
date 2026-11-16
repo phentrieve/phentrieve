@@ -213,7 +213,7 @@ def test_mapping_trace_provenance_preserves_source_metadata() -> None:
     }
 
 
-def test_phase1_json_failure_falls_back_to_grouped_large_and_records_trace() -> None:
+def test_phase1_json_failure_falls_back_to_small_groups_and_records_trace() -> None:
     provider = FakeProvider(
         [
             {"exception": RuntimeError("unterminated JSON object")},
@@ -244,7 +244,8 @@ def test_phase1_json_failure_falls_back_to_grouped_large_and_records_trace() -> 
 
     phase1_trace = result.meta.trace["phase1"]
     assert phase1_trace["initial_mode"] == "ungrouped"
-    assert phase1_trace["final_mode"] == "grouped_large"
+    # A single chunk would be one large group, i.e. the same request again.
+    assert phase1_trace["final_mode"] == "grouped_small"
     assert phase1_trace["fallback_triggered"] is True
     assert phase1_trace["failure_class"] == "structured_json_invalid"
     assert [attempt["status"] for attempt in phase1_trace["attempts"]] == [

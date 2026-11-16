@@ -1444,9 +1444,9 @@ def test_grouped_phase1_zero_hit_success_does_not_raise() -> None:
     assert result.meta.phase_counts["phase1_partial_failures"] == 0
 
 
-def test_pipeline_fallback_from_ungrouped_to_grouped_large_records_initial_mode_and_final_mode() -> (
-    None
-):
+def test_pipeline_fallback_skips_single_group_grouped_large_and_records_modes() -> None:
+    # One chunk would form a single large group, i.e. the ungrouped request
+    # again, so the fallback goes straight to small groups (#375).
     provider = FakeProvider(
         responses=[
             {
@@ -1481,7 +1481,7 @@ def test_pipeline_fallback_from_ungrouped_to_grouped_large_records_initial_mode_
     )
 
     assert result.meta.trace["phase1"]["initial_mode"] == "ungrouped"
-    assert result.meta.trace["phase1"]["final_mode"] == "grouped_large"
+    assert result.meta.trace["phase1"]["final_mode"] == "grouped_small"
     assert result.meta.trace["phase1"]["fallback_triggered"] is True
     assert result.meta.trace["phase1"]["failure_class"] == "structured_json_invalid"
     assert result.meta.phase_counts["phase1_fallbacks"] == 1

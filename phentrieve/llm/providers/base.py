@@ -177,15 +177,16 @@ class LLMProvider(ABC):
                     max_output_tokens=max_output_tokens,
                     retry_token_multiplier=structured_retry_token_multiplier,
                 )
-                if (
-                    next_output_tokens <= current_output_tokens
-                    and is_output_truncation_finish_reason(self.last_finish_reason)
+                if next_output_tokens <= current_output_tokens and (
+                    is_output_truncation_finish_reason(self.last_finish_reason)
+                    or self._repeats_deterministically(exc)
                 ):
-                    # The response exhausted its output budget and a retry
-                    # cannot raise it: the identical request would only repeat
-                    # the same (often runaway, maximally expensive) generation.
+                    # A retry cannot raise the output budget, so it would send
+                    # the identical request. After a truncation, or at
+                    # temperature 0, that only repeats the same (often runaway,
+                    # maximally expensive) generation.
                     logger.warning(
-                        "%s structured response truncated at the output budget "
+                        "%s structured response invalid at the output budget "
                         "(%d tokens, finish_reason=%s); skipping identical retry",
                         self.__class__.__name__.removesuffix(
                             "StructuredOutputProvider"
@@ -256,6 +257,18 @@ class LLMProvider(ABC):
             or "extra data" in message
             or "no structured response payload" in message
         )
+
+    def _repeats_deterministically(self, exc: Exception) -> bool:
+        """Whether resending the identical request would repeat this failure.
+
+        At temperature 0 the same request gives the same malformed output. An
+        empty response is a provider condition rather than a generation, so it
+        stays retryable.
+        """
+        temperature = getattr(self, "temperature", None)
+        if temperature is None or float(temperature) != 0.0:
+            return False
+        return "no structured response payload" not in str(exc).lower()
 
     def _next_retry_output_tokens(
         self,
