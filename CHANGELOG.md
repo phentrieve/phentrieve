@@ -25,6 +25,9 @@ together:
   pressure, genomic coordinates and "St. p."/"Dr." sentences as phone numbers or
   addresses. Names without a title are no longer detected; phone numbers need an
   international prefix, a trunk zero, a phone label or North American formatting.
+  A record number now covers only the number, not the words after it ("MRN: AB-123456
+  with seizures" lost "with seizures"), "mRNA" is no longer read as "MRN", and enzyme EC
+  numbers are no longer high-confidence IP addresses.
 
 ### Changed
 

@@ -1263,7 +1263,7 @@ describe('QueryInterface (characterization)', () => {
     );
     expect(wrapper.vm.conversationStore.queryHistory[0]).toMatchObject({
       query: '[redacted]',
-      redactedQuery: '[REDACTED_MRN]',
+      redactedQuery: '[REDACTED_MRN] with seizures',
       rawQuerySessionOnly: 'MRN: AB-123456 with seizures',
     });
   });

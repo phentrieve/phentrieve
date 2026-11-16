@@ -73,6 +73,36 @@ describe('scanPii', () => {
     expect(result.summary.high.address).toBe(1);
   });
 
+  it.each([
+    ['Reduced mRNA in patient-derived fibroblasts and mRNA stability.'],
+    ['Historia clínica: paciente con epilepsia y ataxia.'],
+    ['Die Schmerzen sind weg seit 3 Tagen, 2020 OP, Leukozyten 12500.'],
+    ['Deficiency of EC 3.2.1.46 (galactocerebrosidase).'],
+  ])('does not flag clinical prose as high-confidence identifiers: %s', (text) => {
+    for (const locale of ['en', 'de']) {
+      expect(scanPii(text, { locale }).summary.high).toEqual({});
+    }
+  });
+
+  it.each([['IQ 60-0.59'], ['range 9.7-12 mg/dl'], ['ratio 67-1/10']])(
+    'does not treat mixed-separator ranges as dates: %s',
+    (text) => {
+      expect(scanPii(text, { locale: 'en' }).hasFindings).toBe(false);
+    }
+  );
+
+  it('redacts only the record number, not the words after it', () => {
+    const text = 'MRN: AB-123456 with seizures';
+    const finding = scanPii(text, { locale: 'en' }).findings[0];
+
+    expect(text.slice(finding.start, finding.end)).toBe('MRN: AB-123456');
+  });
+
+  it('detects a German street address written as a compound', () => {
+    const result = scanPii('Wohnhaft Hauptstraße 12, 10115 Berlin.', { locale: 'de' });
+    expect(result.summary.high.address).toBe(1);
+  });
+
   it('detects English medical record labels', () => {
     const result = scanPii('MRN: AB-123456. Patient has seizures.', { locale: 'en' });
     expect(result.summary.high.medical_record).toBe(1);
