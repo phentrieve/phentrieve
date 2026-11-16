@@ -186,16 +186,9 @@ async def process_text_extract_hpo(
         _sanitize(request.chunking_strategy),
     )
 
-    # Calculate adaptive timeout based on text length
+    # Adaptive timeout from text length and extraction backend
     text_length = len(request.text)
-    if text_length < 500:
-        timeout_seconds = 30
-    elif text_length < 2000:
-        timeout_seconds = 60
-    elif text_length < 5000:
-        timeout_seconds = 120
-    else:
-        timeout_seconds = 180
+    timeout_seconds = _timeout_seconds(text_length, request.extraction_backend)
 
     logger.info(
         "API: Processing %s chars with %ss timeout", text_length, timeout_seconds
@@ -289,13 +282,17 @@ async def process_text_extract_hpo(
             timeout_seconds,
             text_length,
         )
+        suggestions = (
+            "(1) reduce text length, or (2) use the standard extraction backend."
+            if request.extraction_backend == "llm"
+            else "(1) reduce text length, or (2) use 'simple' chunking strategy."
+        )
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=(
                 f"Text processing timed out after {timeout_seconds} seconds. "
                 f"Text length: {text_length} characters. "
-                f"Suggestions: (1) reduce text length, or "
-                f"(2) use 'simple' chunking strategy."
+                f"Suggestions: {suggestions}"
             ),
         )
     except Exception:
@@ -321,6 +318,25 @@ async def process_text_extract_hpo(
     if forced_standard_fallback is not None:
         response.meta.update(forced_standard_fallback)
     return response
+
+
+def _timeout_seconds(text_length: int, extraction_backend: str) -> int:
+    """Return the request timeout for a text of this length on this backend.
+
+    The LLM backend needs several provider requests per document (extraction,
+    then mapping), so its time depends little on text length and even a short
+    text can take well over 30 s. Both LLM values stay below the 300 s
+    ``proxy_read_timeout`` of the frontend proxy.
+    """
+    if extraction_backend == "llm":
+        return 180 if text_length < 5000 else 270
+    if text_length < 500:
+        return 30
+    if text_length < 2000:
+        return 60
+    if text_length < 5000:
+        return 120
+    return 180
 
 
 async def _cancel_on_disconnect(

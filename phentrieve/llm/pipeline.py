@@ -407,9 +407,9 @@ class TwoPhaseLLMPipeline:
                     next_mode=next_mode,
                 ):
                     assert next_mode is not None
-                    if next_mode == "grouped_large" and exc.output_truncated:
+                    if next_mode == "grouped_large":
                         next_mode, current_extraction_groups = (
-                            self._plan_grouped_large_after_truncation(
+                            self._plan_grouped_large_fallback(
                                 text=text,
                                 grounded_chunks=current_grounded_chunks,
                                 extraction_prompt=extraction_prompt,
@@ -1587,18 +1587,19 @@ class TwoPhaseLLMPipeline:
             "structured_schema_validation_failed",
         }
 
-    def _plan_grouped_large_after_truncation(
+    def _plan_grouped_large_fallback(
         self,
         *,
         text: str,
         grounded_chunks: list[dict[str, Any]],
         extraction_prompt: PromptTemplate,
     ) -> tuple[Phase1Mode, list[dict[str, Any]]]:
-        """Choose the fallback after an ungrouped request ran out of output budget.
+        """Choose the fallback after a failed ungrouped request.
 
         A single large group holding every chunk re-sends essentially the same
         request (only the list rendering differs), so it would repeat the
-        truncated generation. In that case go straight to small groups.
+        failure, whether that was a truncation or an invalid response. In that
+        case go straight to small groups.
         """
         try:
             large_groups = self._build_large_extraction_groups(
@@ -1611,7 +1612,7 @@ class TwoPhaseLLMPipeline:
             return "grouped_large", []
         if len(large_groups) <= 1:
             logger.warning(
-                "Phase 1 output truncated; skipping grouped_large because it "
+                "Phase 1 request failed; skipping grouped_large because it "
                 "would resend all %d chunks as one group",
                 len(grounded_chunks),
             )
