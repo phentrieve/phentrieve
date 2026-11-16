@@ -120,6 +120,9 @@ def run(
         phentrieve benchmark extraction run tests/data/en/phenobert/ --dataset GeneReviews
         phentrieve benchmark extraction run tests/data/en/phenobert/ --top-term-only
         phentrieve benchmark extraction run my_dataset.json --num-results 5
+
+    The data bundled under tests/data/en/ only illustrates the format and is
+    not suitable for reported results.
     """
     # Setup logging
     if verbose:

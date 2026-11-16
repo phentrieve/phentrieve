@@ -26,11 +26,18 @@ Object.defineProperty(window, 'visualViewport', {
   },
 });
 
+const TEXT = 'Mail jane@example.org on 12/03/2024';
+const FINDINGS = [
+  { id: 'email-0', category: 'email', confidence: 'high', start: 5, end: 21 },
+  { id: 'date-0', category: 'date', confidence: 'review', start: 25, end: 35 },
+];
+
 function mountDialog(props = {}) {
   return mount(PiiReviewDialog, {
     props: {
       modelValue: true,
-      summary: { high: { email: 1, medical_record: 1 }, review: { date: 1 } },
+      text: TEXT,
+      findings: FINDINGS,
       ...props,
     },
     global: { plugins: [vuetify, i18n] },
@@ -43,30 +50,42 @@ afterEach(() => {
 });
 
 describe('PiiReviewDialog', () => {
-  it('shows category counts without raw snippets', async () => {
+  it('lists each finding with its category and matched text', async () => {
     const wrapper = mountDialog();
     await nextTick();
 
     expect(document.body.textContent).toContain('Email');
-    expect(document.body.textContent).toContain('Medical record');
+    expect(document.body.textContent).toContain('jane@example.org');
     expect(document.body.textContent).toContain('Date');
-    expect(document.body.textContent).not.toContain('jane@example.org');
+    expect(document.body.textContent).toContain('12/03/2024');
 
     wrapper.unmount();
   });
 
-  it('emits cancel, redact, and continue actions', async () => {
+  it('emits continue with high-confidence findings selected by default', async () => {
     const wrapper = mountDialog();
     await nextTick();
 
     document.querySelector('[data-testid="pii-cancel"]').click();
-    document.querySelector('[data-testid="pii-redact"]').click();
     document.querySelector('[data-testid="pii-continue"]').click();
     await nextTick();
 
     expect(wrapper.emitted('cancel')).toHaveLength(1);
-    expect(wrapper.emitted('redact')).toHaveLength(1);
-    expect(wrapper.emitted('continue')).toHaveLength(1);
+    expect(wrapper.emitted('continue')[0]).toEqual([['email-0']]);
+
+    wrapper.unmount();
+  });
+
+  it('lets the user deselect a false positive', async () => {
+    const wrapper = mountDialog();
+    await nextTick();
+
+    document.querySelector('[data-testid="pii-finding-email-0"] input').click();
+    await nextTick();
+    document.querySelector('[data-testid="pii-continue"]').click();
+    await nextTick();
+
+    expect(wrapper.emitted('continue')[0]).toEqual([[]]);
 
     wrapper.unmount();
   });

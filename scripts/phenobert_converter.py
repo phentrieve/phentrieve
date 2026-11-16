@@ -1,6 +1,14 @@
 """
 PhenoBERT corpus converter for Phentrieve.
 
+DEPRECATED: this converter is no longer maintained and will not be repaired.
+Known defect (#520): PATTERN_PROCESSED accepts only an empty or numeric fifth
+column, so annotation rows with a text label there are dropped, and further
+rows fail its span-text check (ID-68 keeps 678 of 866 upstream rows). The
+converted copy in tests/data/en/phenobert is kept only as a format fixture for
+the tests and is not suitable for reported results. Removal is planned for a
+later release.
+
 Converts PhenoBERT datasets (GSC+, ID-68, GeneReviews) to Phentrieve JSON format.
 Simple, focused implementation following alpha software principles.
 

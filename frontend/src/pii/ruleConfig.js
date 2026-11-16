@@ -1,6 +1,6 @@
 export const SUPPORTED_PII_LOCALES = Object.freeze(['en', 'de', 'fr', 'es', 'nl']);
 
-export const DATE_PATTERN = /\b(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/gu;
+export const DATE_PATTERN = /\b(?:\d{1,2}([./-])\d{1,2}\1\d{2,4}|\d{4}-\d{2}-\d{2})\b/gu;
 const ID_VALUE_PATTERN = /\b[A-Z]{0,4}[- ]?\d{4,12}[A-Z0-9-]*\b/giu;
 const PERSON_NAME_TOKEN = String.raw`\p{Lu}[\p{L}\p{M}'-]+`;
 const LETTER_LEFT_BOUNDARY = String.raw`(?<![\p{L}\p{M}])`;
@@ -12,92 +12,6 @@ const TITLED_NAME_RULE_CONFIG = Object.freeze({
   fr: { id: 'fr.titled_name', titles: ['Monsieur', 'Madame', 'M', 'Mme', 'Dr', 'Prof'] },
   es: { id: 'es.titled_name', titles: ['Señor', 'Señora', 'Sr', 'Sra', 'Dr', 'Dra'] },
   nl: { id: 'nl.titled_name', titles: ['Dhr', 'Mevrouw', 'Mw', 'Dr', 'Prof'] },
-});
-
-export const UNTITLED_NAME_RULE_CONFIG = Object.freeze({
-  id: 'global.untitled_name',
-  category: 'person_name',
-  confidence: 'review',
-  redactionToken: '[REDACTED_NAME]',
-  enabled: true,
-  minScore: 2,
-  minNameTokens: 2,
-  maxTokens: 4,
-  contextWindowChars: 32,
-  particles: ['de', 'del', 'da', 'di', 'du', 'le', 'la', 'van', 'von', 'der', 'den'],
-  contextWords: [
-    'called',
-    'case',
-    'name',
-    'patient',
-    'subject',
-    'Nachname',
-    'Name',
-    'Patient',
-    'Vorname',
-    'Naam',
-    'Patiënt',
-    'Nom',
-    'Patient',
-    'Paciente',
-    'paciente',
-  ],
-  blockedTerms: [
-    'abnormality',
-    'biolord',
-    'called',
-    'carinatum',
-    'case',
-    'clinical',
-    'dem',
-    'des',
-    'die',
-    'das',
-    'der',
-    'disease',
-    'down',
-    'ein',
-    'eine',
-    'einem',
-    'einen',
-    'einer',
-    'eines',
-    'er',
-    'es',
-    'high',
-    'hpo',
-    'ihr',
-    'ihre',
-    'kein',
-    'keine',
-    'keinem',
-    'keinen',
-    'keiner',
-    'low',
-    'model',
-    'naam',
-    'nachname',
-    'name',
-    'nom',
-    'paciente',
-    'patient',
-    'pectus',
-    'phenotype',
-    'sein',
-    'seine',
-    'sie',
-    'syndrome',
-    'term',
-    'the',
-    'this',
-    'tracheomalacia',
-    'vorname',
-  ],
-  // German capitalizes nouns, so a sentence-initial adjective plus a noun looks
-  // like a name: "Rezidivierende Krampfanfälle", "Beidseitige Ptosis".
-  nonNameFirstTokenPattern: /(?:ierte|ierende|ende|ige|iger|liche|licher|ische|ischer|normale)$/iu,
-  nonNameLastTokenPattern:
-    /(?:ataxie|epilepsie|tonie|phalie|plegie|parese|plasie|trophie|pathie|algie|ämie|aemie|itis|anfall|anfälle|störung|schmerzen|syndrom|krankheit)$/iu,
 });
 
 function escapeRegex(value) {
@@ -153,7 +67,8 @@ export const GLOBAL_RULES = Object.freeze([
   {
     id: 'global.ipv4',
     category: 'ip_address',
-    confidence: 'high',
+    // review: enzyme EC numbers ("3.2.1.46") have the same shape
+    confidence: 'review',
     locales: ['*'],
     redactionToken: '[REDACTED_IP]',
     enabled: true,
@@ -191,8 +106,10 @@ export const LOCALE_RULES = Object.freeze({
       locales: ['en'],
       redactionToken: '[REDACTED_MRN]',
       enabled: true,
+      // The value must start with an identifier containing a digit: "mRNA in fibroblasts"
+      // and the words after "MRN: AB-123456" are not part of a record number.
       patterns: [
-        /(?:MRN|medical record number|patient ID|NHS number)\s*[:#-]?\s*[A-Z0-9 -]{4,24}/giu,
+        /(?:\bMRN\b|medical record number|patient ID|NHS number)\s*[:#-]?\s*[A-Z-]{0,6}\d[A-Z0-9-]{2,}[\d -]{0,12}(?<=[A-Z0-9])/giu,
       ],
     },
   ],
@@ -255,7 +172,7 @@ export const LOCALE_RULES = Object.freeze({
       redactionToken: '[REDACTED_MRN]',
       enabled: true,
       patterns: [
-        /(?:número de historia clínica|historia clínica|paciente id)\s*[:#-]?\s*[A-Z0-9 -]{4,24}/giu,
+        /(?:número de historia clínica|historia clínica|paciente id)\s*[:#-]?\s*[A-Z-]{0,6}\d[A-Z0-9-]{2,}[\d -]{0,12}(?<=[A-Z0-9])/giu,
       ],
     },
   ],
@@ -275,11 +192,14 @@ export const LOCALE_RULES = Object.freeze({
 });
 
 export const ADDRESS_RULES = Object.freeze({
-  de: /\b(?:straße|strasse|str\.|weg|platz|allee)\s+\d+\b[^\n]{0,80}\b\d{5}\b/giu,
+  // Capitalised compound ("Hauptstraße 12", "Berliner Str. 5"), so the adverb "weg" is no street.
+  de: /\p{Lu}[\p{L}-]*(?:\s?[Ss]tr(?:aße|asse|\.)|weg|platz|allee)\s+\d+[a-z]?\b[^\n]{0,30}\b\d{5}\b/gu,
   fr: /\b(?:rue|avenue|av\.|boulevard|bd|chemin|place)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b\d{5}\b/giu,
   es: /\b(?:calle|c\/|avenida|avda\.|paseo|plaza)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b\d{5}\b/giu,
-  nl: /\b(?:straat|laan|weg|plein|adres)\s*[:#-]?\s+[^\n,]{0,80}\d+[A-Z]?\b[^\n]{0,80}\b\d{4}\s?[A-Z]{2}\b/giu,
-  en: /\b(?:street|st\.|road|rd\.|avenue|ave\.|drive|dr\.)\s+[^\n,]{0,80}\d+[^\n]{0,80}\b[A-Z0-9][A-Z0-9 -]{3,10}\b/giu,
+  nl: /\b(?:straat|laan|plein|adres)\s*[:#-]?\s+[^\n,]{0,80}\d+[A-Z]?\b[^\n]{0,80}\b\d{4}\s?[A-Z]{2}\b/giu,
+  // House number, capitalised street name, capitalised street word. Case-sensitive and
+  // without "St."/"Dr.": those matched "St. p. ..." and "Dr. Meier ... 2019 ..." sentences.
+  en: /\b\d{1,5}[A-Za-z]?\s+[A-Z][\w' -]{1,40}?\s(?:Street|Road|Rd\.|Avenue|Ave\.|Drive|Lane|Boulevard|Blvd\.)/gu,
 });
 
 export const MEDICAL_ID_VALUE_PATTERN = ID_VALUE_PATTERN;

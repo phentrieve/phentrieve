@@ -174,9 +174,9 @@
 
     <PiiReviewDialog
       v-model="piiReviewDialogVisible"
-      :summary="pendingPiiSubmission?.scanResult?.summary || { high: {}, review: {} }"
+      :text="pendingPiiSubmission?.text || ''"
+      :findings="pendingPiiSubmission?.scanResult?.findings || []"
       @cancel="cancelPiiReview"
-      @redact="redactPiiInInput"
       @continue="continueWithPiiRedaction"
     />
   </div>
@@ -492,7 +492,9 @@ function getHistoryDisplayQuery(item) {
     return rawQuery;
   }
 
-  return typeof item?.query === 'string' ? item.query : '';
+  // After a reload only the placeholder is left; say why instead of showing it.
+  const stored = typeof item?.query === 'string' ? item.query : '';
+  return stored === REDACTED_QUERY_PLACEHOLDER ? t('queryInterface.textNotStored') : stored;
 }
 
 function isUserNoteExpanded(turnId) {
@@ -545,12 +547,8 @@ function cancelPiiReview() {
   piiReviewFlow.cancelPiiReview();
 }
 
-function redactPiiInInput() {
-  return queryInterfaceController.redactPiiInInput();
-}
-
-function continueWithPiiRedaction() {
-  return queryInterfaceController.continueWithPiiRedaction();
+function continueWithPiiRedaction(selectedFindingIds) {
+  return queryInterfaceController.continueWithPiiRedaction(selectedFindingIds);
 }
 
 // Initialization (formerly created())
