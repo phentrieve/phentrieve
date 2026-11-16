@@ -613,6 +613,9 @@ def test_ollama_structured_retry_does_not_shrink_large_requested_budget(
         ],
     )
     provider = get_llm_provider(llm_provider="ollama", llm_model="qwen3:32b")
+    # The retry keeps the same budget, so at temperature 0 it would be skipped
+    # as an identical request (#375); sample to exercise the retry path.
+    provider.temperature = 0.7
 
     provider.run_structured_prompt(
         system_prompt="system",
@@ -646,6 +649,9 @@ def test_ollama_structured_retry_does_not_expand_small_requested_budget(
         ],
     )
     provider = get_llm_provider(llm_provider="ollama", llm_model="qwen3:32b")
+    # The retry keeps the same budget, so at temperature 0 it would be skipped
+    # as an identical request (#375); sample to exercise the retry path.
+    provider.temperature = 0.7
 
     provider.run_structured_prompt(
         system_prompt="system",
@@ -760,9 +766,11 @@ def test_gemini_does_not_repeat_identical_request_after_truncation_at_budget_cap
     assert provider.last_request_count == 1
 
 
-def test_openai_still_retries_non_truncated_invalid_json_at_budget_cap(
+def test_openai_skips_identical_retry_for_invalid_json_at_budget_cap(
     monkeypatch,
 ) -> None:
+    # #375: the budget cannot grow, so the retry would be the identical request;
+    # at temperature 0 it would only repeat the same malformed output.
     monkeypatch.setenv("PHENTRIEVE_OPENAI_API_KEY", "test-key")
     fake_responses = _install_fake_openai(
         monkeypatch,
@@ -772,6 +780,79 @@ def test_openai_still_retries_non_truncated_invalid_json_at_budget_cap(
                 finish_reason="stop",
                 input_tokens=10,
                 output_tokens=2,
+            ),
+            _fake_openai_response(
+                output_text='{"phenotypes":[]}',
+                input_tokens=10,
+                output_tokens=3,
+            ),
+        ],
+    )
+    provider = get_llm_provider(llm_provider="openai", llm_model="gpt-5.4-mini")
+    assert provider.temperature == 0.0
+
+    with pytest.raises(ValidationError):
+        provider.run_structured_prompt(
+            system_prompt="system",
+            user_prompt="user",
+            response_model=LLMExtractedPhenotypes,
+            max_output_tokens=65536,
+        )
+
+    assert len(fake_responses.create_calls) == 1
+    assert provider.last_request_count == 1
+
+
+def test_openai_retries_invalid_json_at_budget_cap_when_sampling(
+    monkeypatch,
+) -> None:
+    # With a temperature above 0 the same request can give a different output,
+    # so the retry is kept.
+    monkeypatch.setenv("PHENTRIEVE_OPENAI_API_KEY", "test-key")
+    fake_responses = _install_fake_openai(
+        monkeypatch,
+        responses=[
+            _fake_openai_response(
+                output_text='{"phenotypes": [',
+                finish_reason="stop",
+                input_tokens=10,
+                output_tokens=2,
+            ),
+            _fake_openai_response(
+                output_text='{"phenotypes":[]}',
+                input_tokens=10,
+                output_tokens=3,
+            ),
+        ],
+    )
+    provider = get_llm_provider(llm_provider="openai", llm_model="gpt-5.4-mini")
+    provider.temperature = 0.7
+
+    result = provider.run_structured_prompt(
+        system_prompt="system",
+        user_prompt="user",
+        response_model=LLMExtractedPhenotypes,
+        max_output_tokens=65536,
+    )
+
+    assert result.phenotypes == []
+    assert len(fake_responses.create_calls) == 2
+
+
+def test_openai_still_retries_an_empty_response_at_budget_cap(
+    monkeypatch,
+) -> None:
+    # An empty response is a provider condition, not a deterministic
+    # generation, so the identical request is still worth one retry.
+    monkeypatch.setenv("PHENTRIEVE_OPENAI_API_KEY", "test-key")
+    fake_responses = _install_fake_openai(
+        monkeypatch,
+        responses=[
+            _fake_openai_response(
+                output_text="",
+                finish_reason="stop",
+                input_tokens=10,
+                output_tokens=0,
             ),
             _fake_openai_response(
                 output_text='{"phenotypes":[]}',
