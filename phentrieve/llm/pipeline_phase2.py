@@ -165,6 +165,38 @@ def mapping_batch_item_id(index: int) -> str:
     return f"item_{index + 1}"
 
 
+# Decimals kept for ``retrieval_score`` in the mapping payload. Rounding is
+# monotonic and candidates stay in list order, so it cannot reorder them; two
+# candidates show the same value only when their scores differ by less than
+# 1e-4, far below what separates candidates for one phrase.
+RETRIEVAL_SCORE_DECIMALS = 4
+
+
+def _round_retrieval_score(score: Any) -> Any:
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return score
+    return round(float(score), RETRIEVAL_SCORE_DECIMALS)
+
+
+def _shared_retrieval_query(candidates: list[dict[str, Any]]) -> str | None:
+    """Return the query to state once at item level, or None to keep it per candidate.
+
+    The value is the most frequent ``retrieval_query`` (the earliest one on a
+    tie). Nothing is lifted when any candidate has no query, because such a
+    candidate would then read as retrieved with the item-level one.
+    """
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        query = candidate.get("retrieval_query")
+        if not query or not isinstance(query, str):
+            return None
+        counts[query] = counts.get(query, 0) + 1
+    if not counts:
+        return None
+    # max() returns the first maximal key; dicts keep insertion order.
+    return max(counts, key=lambda query: counts[query])
+
+
 def compact_mapping_item(
     item: dict[str, Any],
     *,
@@ -186,6 +218,8 @@ def compact_mapping_item(
     # ORIGINAL item in ``phenotype_from_candidate`` (model-assertion-wins, B1),
     # so dropping them here is behavior-preserving for the contract and only
     # restores the baseline mapping input.
+    candidates = list(item["candidates"])
+    shared_query = _shared_retrieval_query(candidates)
     compact_item: dict[str, Any] = {
         "primary_chunk_text": normalize_grounded_text(
             grounded_context.get("primary_chunk_text")
@@ -193,18 +227,27 @@ def compact_mapping_item(
         "neighbor_chunk_texts": neighbor_texts,
         "phrase": str(item["phrase"]).lower().replace("-", " ").strip(),
         "category": item["category"],
-        "candidates": [],
     }
-    for candidate in item["candidates"]:
+    # Token compaction, lossless in meaning: a candidate without its own
+    # ``retrieval_query`` was retrieved with the item-level one, and a candidate
+    # without ``matched_text`` matched on its ``term`` (or the retriever gave no
+    # matched text, as before). Candidate count and order are unchanged.
+    if shared_query is not None:
+        compact_item["retrieval_query"] = shared_query
+    compact_item["candidates"] = []
+    for candidate in candidates:
         compact_candidate = {
             "id": candidate["hpo_id"],
             "term": candidate["term_name"],
-            "retrieval_score": candidate.get("score"),
+            "retrieval_score": _round_retrieval_score(candidate.get("score")),
         }
-        if candidate.get("retrieval_query"):
-            compact_candidate["retrieval_query"] = candidate.get("retrieval_query")
-        if candidate.get("matched_text"):
-            compact_candidate["matched_text"] = candidate.get("matched_text")
+        retrieval_query = candidate.get("retrieval_query")
+        if retrieval_query and retrieval_query != shared_query:
+            compact_candidate["retrieval_query"] = retrieval_query
+        matched_text = candidate.get("matched_text")
+        # Exact comparison: a difference in case or spacing is kept.
+        if matched_text and matched_text != candidate["term_name"]:
+            compact_candidate["matched_text"] = matched_text
         if candidate.get("matched_component"):
             compact_candidate["matched_component"] = candidate.get("matched_component")
         compact_item["candidates"].append(compact_candidate)
