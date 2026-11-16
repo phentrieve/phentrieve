@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Convert released RAG-HPO paper benchmark files into Phentrieve JSON fixtures."""
+"""Convert released RAG-HPO paper benchmark files into Phentrieve JSON fixtures.
+
+DEPRECATED: no longer maintained. The converted copy in
+tests/data/en/raghpo_paper is kept only as a format fixture for the tests.
+Known data-quality findings are tracked in #130. Removal is planned for a
+later release.
+"""
 
 from __future__ import annotations
 

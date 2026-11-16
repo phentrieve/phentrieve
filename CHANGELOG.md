@@ -18,6 +18,27 @@ together:
 
 ## [Unreleased]
 
+### Changed
+
+- **Benchmark scoring counts assertion `normal` as absent (#515).** The benchmark
+  loader mapped `normal` to `PRESENT`, while export and the LLM pipeline already treat
+  a normalcy verdict as excluded. It now maps to `ABSENT`. This changes scores for any
+  gold or predicted term labelled `normal`, and the assertion mapping is part of the
+  LLM benchmark run identity, so earlier checkpoints do not match.
+
+### Deprecated
+
+- **The bundled benchmark corpus copies and their converter scripts (#520).** The
+  copies under `tests/data/en/phenobert/` and `tests/data/en/raghpo_paper/` and the
+  scripts `convert_phenobert_data.py`, `phenobert_converter.py`,
+  `convert_raghpo_paper_data.py` and `raghpo_paper_converter.py` are no longer
+  maintained and stay only as format fixtures for the tests; removal is planned for a
+  later release. The PhenoBERT copy is incomplete: the converter drops annotation rows
+  with a text label in the fifth column, and further rows fail its span-text check.
+  ID-68 has 678 of 866 upstream rows. The
+  converter will not be repaired. The copies are not suitable for reported results, and
+  loading `ID_68` now logs a warning.
+
 ## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
 
 Standard-pipeline negation of whole lists and family findings (#400), multi-word and
