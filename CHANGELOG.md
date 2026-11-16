@@ -18,6 +18,37 @@ together:
 
 ## [Unreleased]
 
+`PROMPT_BEHAVIOR_VERSION` is `9`: the two LLM candidate and phrase fixes below change
+pipeline results, so earlier LLM benchmark checkpoints do not match.
+
+### Fixed
+
+- **Words hyphenated across a line break are rejoined in the standard pipeline (#519).**
+  Text pasted from PDFs carries split words, and the fragments were chunked as they
+  were. A hyphen at a line end is removed when the next line starts lowercase; soft
+  hyphens are dropped. Chunk positions still refer to the submitted text. Real hyphens
+  stay: before a coordinator ("und", "oder", "and", "or"), after a one-letter or
+  capital-ending fragment, in a fragment that already holds a hyphen, and across a
+  blank line. The LLM backend is unchanged.
+- **Standard extraction no longer returns non-phenotype HPO terms (#468).** Terms
+  outside *Phenotypic abnormality* (clinical modifiers, course, inheritance, frequency)
+  are left out of chunk matches and aggregated terms. A chunk can therefore return
+  fewer terms than `num_results_per_chunk`. Query mode is unchanged.
+- **Region-plus-layer phrases stay whole in phase 1 (#488).** The shared-head split
+  turned a three-word phrase with an anatomical region and a layer into two broader
+  phrases; it now goes to retrieval as one phrase.
+- **Non-phenotypic hits no longer use up candidate slots (#493).** They are removed
+  before the hybrid candidate selection instead of after it, so the selection is
+  filled with phenotype terms.
+
+### Changed
+
+- **`aggregated_term_confidence` is compared with a term's best match (#235).** It was
+  compared with the average over all chunks, so a term found strongly in one chunk and
+  weakly in another could be dropped. Results are a superset of before; the added
+  terms have a `confidence` (still the average) below the threshold and sort after the
+  earlier ones.
+
 ## [0.32.0] — 2026-11-16 (CLI 0.32.0 / API 0.22.0 / Frontend 0.22.0)
 
 Fixes found before deploying 0.31: LLM full-text requests no longer time out after 30 s
