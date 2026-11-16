@@ -120,6 +120,8 @@ def build_grounded_chunks_from_text_pipeline(
             if sbert_model_for_semantic_chunking is not None
             else load_embedding_model(retrieval_model_name)
         ),
+        # Evidence matching already tolerates line-break hyphens (#462).
+        rejoin_line_break_hyphens=False,
     )
     processed_chunks = text_pipeline.process(text, include_positions=include_positions)
     prompt_texts = _prompt_texts(text, processed_chunks)
