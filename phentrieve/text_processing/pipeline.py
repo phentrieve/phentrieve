@@ -6,6 +6,7 @@ of text processing operations including chunking and assertion detection.
 """
 
 import logging
+import re
 from typing import Any
 
 from sentence_transformers import SentenceTransformer
@@ -27,7 +28,9 @@ from phentrieve.text_processing.cleaners import (
     clean_internal_newlines_and_extra_spaces,
     normalize_line_endings,
 )
+from phentrieve.text_processing.resource_loader import load_language_resource
 from phentrieve.text_processing.spans import find_span_in_text
+from phentrieve.utils import load_user_config
 from phentrieve.utils import sanitize_log_value as _sanitize
 
 logger = logging.getLogger(__name__)
@@ -98,6 +101,10 @@ class _SentenceContext:
         self.forward_negation = load_context_cues(
             language, "NEGATED_EXISTENCE", "FORWARD"
         )
+        self.backward_negation = load_context_cues(
+            language, "NEGATED_EXISTENCE", "BACKWARD"
+        )
+        self.negation = load_context_cues(language, "NEGATED_EXISTENCE")
         self.terminate = load_context_cues(language, "TERMINATE")
         self.family = load_context_cues(language, "FAMILY")
         self._docs: dict[int, Any] = {}
@@ -136,6 +143,28 @@ class _SentenceContext:
             for t in self.tokens(start, end)
         )
 
+    def has_noun(self, start: int, end: int) -> bool:
+        return any(t.pos_ in ("NOUN", "PROPN") for t in self.tokens(start, end))
+
+    def subject_in(self, cue: tuple[int, int], start: int, end: int) -> bool:
+        """True if the clause the cue belongs to has its subject in [start, end).
+
+        "Seizures were not observed" and "The scan showed no lesion" are one
+        clause, so the text before the cue is no finding of its own. A cue
+        behind an adposition ("with no fever") is an adjunct instead.
+        """
+        offset = self.sentence_start(cue[0])
+        for token in self.tokens(*cue):
+            for node in (token, *token.ancestors):
+                if node.pos_ == "ADP":
+                    break
+                if any(
+                    child.dep_ in _SUBJECT_DEPS and start <= offset + child.idx < end
+                    for child in node.children
+                ):
+                    return True
+        return False
+
     def is_informant(self, start: int, end: int) -> bool:
         """True if the relative in [start, end) only reports the finding.
 
@@ -163,6 +192,93 @@ class _SentenceContext:
             ):
                 return True
         return False
+
+
+def _function_words(language: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Words the chunk cleaner strips at the start and at the end of a chunk."""
+    config = load_user_config().get("language_resources", {})
+
+    def words(name: str) -> set[str]:
+        resource = load_language_resource(f"{name}.json", f"{name}_file", config)
+        return {w.strip() for w in resource.get(language, resource.get("en", []))}
+
+    return (
+        frozenset(words("leading_cleanup_words") | words("low_semantic_value_words")),
+        frozenset(words("trailing_cleanup_words")),
+    )
+
+
+def _content_span(
+    text: str,
+    start: int,
+    end: int,
+    leading: frozenset[str] = frozenset(),
+    trailing: frozenset[str] = frozenset(),
+) -> tuple[int, int] | None:
+    """[start, end) without punctuation and function words at its edges.
+
+    None if only function words and numbers are left ("with", "and the"): such
+    text carries no finding and gets no chunk of its own.
+    """
+    words = [
+        (start + m.start(), start + m.end(), m.group().lower())
+        for m in re.finditer(r"\w+", text[start:end])
+    ]
+    while words and words[0][2] in leading:
+        words.pop(0)
+    while words and words[-1][2] in trailing:
+        words.pop()
+    if not any(word.isalpha() and word not in leading for *_, word in words):
+        return None
+    return words[0][0], words[-1][1]
+
+
+def _negation_scope_parts(
+    context: _SentenceContext, context_start: int, start: int, end: int
+) -> tuple[tuple[int, int], list[tuple[int, int]]] | None:
+    """Split a negated chunk [start, end) into the cue's scope and the rest (#521).
+
+    As in ConText, a forward cue covers the text after it and a backward cue the
+    text before it, up to a scope terminator (but, except, ...). Returns the
+    scope span (with its cue) and the spans outside it, or None when the whole
+    chunk is in scope or the scope is unclear: no cue or cues of mixed
+    direction, no noun in the scope ("seizures were not observed"), or a cue in
+    the same clause as the text on its other side.
+    """
+    cues = context.cues(context.negation, context_start, end)
+    # "no" inside "no evidence of" is the same cue
+    cues = [
+        cue
+        for cue in cues
+        if not any(o != cue and o[0] <= cue[0] and cue[1] <= o[1] for o in cues)
+    ]
+    if not cues:
+        return None
+    literals = {context.lower[s:e] for s, e in cues}
+    first, last = cues[0], cues[-1]
+    # facing: the text next to the cue on the side its scope does not cover
+    if literals <= set(context.forward_negation):
+        cue, facing = first, (start, first[0])
+        terminators = context.cues(context.terminate, last[1], end)
+        scope = (max(first[0], start), terminators[0][0] if terminators else end)
+        outside = [facing, (terminators[0][1], end)] if terminators else [facing]
+        findings = (max(last[1], start), scope[1])
+    elif literals <= set(context.backward_negation) and first[0] >= start:
+        cue, facing = last, (last[1], end)
+        terminators = context.cues(context.terminate, start, first[0])
+        scope = (terminators[-1][1] if terminators else start, last[1])
+        outside = [(start, terminators[-1][0]), facing] if terminators else [facing]
+        findings = (scope[0], first[0])
+    else:
+        return None
+    outside = [span for span in outside if span[0] < span[1]]
+    if (
+        not outside
+        or not context.has_noun(*findings)
+        or (facing[0] < facing[1] and context.subject_in(cue, *facing))
+    ):
+        return None
+    return scope, outside
 
 
 def _propagate_list_negation(
@@ -393,6 +509,61 @@ class TextProcessingPipeline:
             preference=preference,
         )
 
+    def _split_at_negation_scope(
+        self,
+        context: _SentenceContext,
+        chunks: list[dict[str, Any]],
+        spans: list[tuple[int, int]],
+        context_starts: list[int],
+    ) -> None:
+        """Give text outside a negation cue's scope its own chunk (#521).
+
+        A chunk has one status, so "Seizures since age 2 with no fever" was
+        negated as a whole. The part outside the scope becomes a chunk with its
+        own detected status, unless it holds only function words. Chunks that
+        are in scope as a whole are left alone.
+        """
+        if context.nlp is None:
+            return
+        leading, trailing = _function_words(self.language)
+        idx = 0
+        while idx < len(chunks):
+            chunk, (start, end) = chunks[idx], spans[idx]
+            parts = None
+            if chunk["status"] is AssertionStatus.NEGATED and start >= 0:
+                parts = _negation_scope_parts(context, context_starts[idx], start, end)
+            scope = parts and _content_span(context.text, *parts[0])
+            # (span of the new chunk, text the detector reads for it)
+            outside = [
+                (span, (context_starts[idx] if part[0] == start else span[0], part[1]))
+                for part in (parts[1] if parts else [])
+                if (span := _content_span(context.text, *part, leading, trailing))
+            ]
+            if not scope or not outside:
+                idx += 1
+                continue
+            pieces = [({**chunk}, scope)]
+            for span, (detect_start, detect_end) in outside:
+                # Text before the scope keeps the chunk's leading context (a cue
+                # the cleaner stripped); text after the scope has none.
+                status, details = self.assertion_detector.detect(
+                    context.text[detect_start:detect_end].strip()
+                )
+                pieces.append(
+                    ({**chunk, "status": status, "assertion_details": details}, span)
+                )
+            pieces.sort(key=lambda piece: piece[1])
+            for piece, (piece_start, piece_end) in pieces:
+                piece["text"] = clean_internal_newlines_and_extra_spaces(
+                    context.text[piece_start:piece_end]
+                )
+                if "start_char" in chunk:
+                    piece["start_char"], piece["end_char"] = piece_start, piece_end
+            chunks[idx : idx + 1] = [piece for piece, _ in pieces]
+            spans[idx : idx + 1] = [span for _, span in pieces]
+            context_starts[idx : idx + 1] = [context_starts[idx]] * len(pieces)
+            idx += len(pieces)
+
     def process(
         self, raw_text: str, include_positions: bool = False
     ) -> list[dict[str, Any]]:
@@ -490,6 +661,7 @@ class TextProcessingPipeline:
         processed_chunks_with_assertion: list[dict[str, Any]] = []
         assertion_inputs: list[str] = []
         chunk_document_spans: list[tuple[int, int]] = []
+        assertion_context_starts: list[int] = []
         search_start = 0  # Track position for sequential search (handles duplicates)
 
         for idx, final_text_chunk in enumerate(final_raw_chunks_text_only):
@@ -544,6 +716,7 @@ class TextProcessingPipeline:
             # "status" and "assertion_details" are filled in below, after one
             # batched assertion-detection call for all chunks (#410).
             chunk_document_spans.append((start_char, end_char))
+            assertion_context_starts.append(assertion_context_start)
             chunk_data: dict[str, Any] = {
                 "text": cleaned_final_chunk,
                 "status": None,
@@ -576,6 +749,12 @@ class TextProcessingPipeline:
 
         if not self.assertion_config.get("disable", False):
             context = _SentenceContext(original_text, self.language, pseudo_spans)
+            self._split_at_negation_scope(
+                context,
+                processed_chunks_with_assertion,
+                chunk_document_spans,
+                assertion_context_starts,
+            )
             _propagate_list_negation(
                 context, processed_chunks_with_assertion, chunk_document_spans
             )
