@@ -1798,6 +1798,23 @@ class TwoPhaseLLMPipeline:
                     similarities = self._extract_first_result_list(
                         batch_result, "similarities"
                     )
+                    # Filter before selection: a non-phenotypic hit would use up
+                    # a selection slot or the min-fill quota and then be removed
+                    # below without replacement (#493).
+                    phenotypic_indices = [
+                        index
+                        for index, metadata in enumerate(metadatas)
+                        if not is_non_phenotypic_abnormality(
+                            str(metadata.get("hpo_id", "")), guard_map
+                        )
+                    ]
+                    if len(phenotypic_indices) < len(metadatas):
+                        similarities = [
+                            similarities[index]
+                            for index in phenotypic_indices
+                            if index < len(similarities)
+                        ]
+                        metadatas = [metadatas[index] for index in phenotypic_indices]
                     candidates = [
                         {
                             **candidate,
