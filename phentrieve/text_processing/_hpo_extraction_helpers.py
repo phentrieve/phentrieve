@@ -267,6 +267,11 @@ def aggregate_and_rank(
     avg_score, confidence, chunks, top_evidence_chunk_idx,
     text_attributions, assertion_status, status, and optionally
     definition + synonyms when include_details is True. Ranks start at 1.
+
+    A term is kept when its best match (``score``) reaches
+    ``min_confidence_for_aggregated``; ``avg_score`` and ``confidence`` stay
+    the mean over all evidence and can therefore be below the threshold.
+    Terms are ranked by avg_score, then score, then count (all descending).
     """
     aggregated_list: list[dict[str, Any]] = []
     for hpo_id, evidence_list in evidence_map.items():
@@ -274,9 +279,11 @@ def aggregate_and_rank(
             continue
         total_score = sum(e["score"] for e in evidence_list)
         avg_score = total_score / len(evidence_list)
-        if avg_score < min_confidence_for_aggregated:
-            continue
         max_score = max(e["score"] for e in evidence_list)
+        # The threshold applies to the term's best match, so one strong match
+        # is not hidden by weaker matches of the same term in other chunks.
+        if max_score < min_confidence_for_aggregated:
+            continue
         top_evidence_chunk_idx = next(
             e["chunk_idx"] for e in evidence_list if e["score"] == max_score
         )
@@ -311,7 +318,7 @@ def aggregate_and_rank(
             term["synonyms"] = hpo_synonyms_cache.get(hpo_id, [])
         aggregated_list.append(term)
 
-    aggregated_list.sort(key=lambda x: (-x["avg_score"], -x["count"]))
+    aggregated_list.sort(key=lambda x: (-x["avg_score"], -x["score"], -x["count"]))
     for idx, term in enumerate(aggregated_list):
         term["rank"] = idx + 1
     return aggregated_list
