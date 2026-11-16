@@ -36,6 +36,16 @@ name. Reusing that name requires the explicit `--overwrite` option.
 
 ## GSC And CSC Extraction Benchmarks
 
+!!! warning "Bundled corpus copies are deprecated"
+    The converted copies under `tests/data/en/raghpo_paper/` and
+    `tests/data/en/phenobert/` are deprecated and no longer maintained. They
+    stay only as format fixtures for the tests, and removal is planned for a
+    later release. The PhenoBERT copy is known to be incomplete (#520): `ID_68`
+    has 678 of 866 upstream annotation rows. Known data-quality findings for
+    the RAG-HPO copy are tracked in #130. Do not use the bundled copies for
+    reported results; bring your own data in the same format. The commands
+    below only illustrate the workflow.
+
 The canonical text-fragment corpora are the converted RAG-HPO `GSC` and `CSC`
 sets under `tests/data/en/raghpo_paper/`. They are legacy polarity-blind
 corpora, so use `present-only` scoring while leaving assertion detection
@@ -130,7 +140,7 @@ LLM manifests separate identities according to what they describe:
 
 Gold assertions are normalized once to the canonical `PRESENT`, `ABSENT`,
 `UNCERTAIN`, and `FAMILY_HISTORY` vocabulary. Known aliases such as `affirmed`
-and `negated` are accepted; an unknown explicit gold assertion is rejected
+and `negated` are accepted, and `normal` counts as `ABSENT`; an unknown explicit gold assertion is rejected
 instead of silently becoming present. Aggregate `all` runs preserve each
 document's source-dataset projection.
 
@@ -219,6 +229,13 @@ and model. When supplied through `--llm-seed`, the resolved seed is included in
 the execution fingerprint and passed to the runtime provider.
 
 ## Corpus Acquisition And Conversion
+
+!!! warning "Converters are deprecated"
+    `scripts/convert_phenobert_data.py` and
+    `scripts/convert_raghpo_paper_data.py` are deprecated and no longer
+    maintained. The PhenoBERT converter drops annotation rows whose fifth
+    column holds a text label (#520) and will not be repaired, so a rebuilt
+    corpus is incomplete in the same way as the bundled copy.
 
 If you need to rebuild the corpus, use the reproducible PhenoBERT download and
 conversion workflow already documented in this repo:
