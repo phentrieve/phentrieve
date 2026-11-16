@@ -222,7 +222,7 @@ def interactive(
         typer.Option(
             "--aggregated-term-confidence",
             "-atc",
-            help="Minimum confidence score for aggregated HPO terms",
+            help="Minimum score that the best match of an aggregated HPO term must reach",
         ),
     ] = DEFAULT_MIN_CONFIDENCE_AGGREGATED,
     top_term_per_chunk: Annotated[
@@ -519,7 +519,7 @@ def process_text_for_hpo_command(
         typer.Option(
             "--aggregated-term-confidence",
             "-atc",
-            help="Minimum confidence score for an aggregated HPO term to be included in the final results",
+            help="Minimum score that the best match of an aggregated HPO term must reach for the term to be included in the final results",
         ),
     ] = DEFAULT_MIN_CONFIDENCE_AGGREGATED,
     top_term_per_chunk: Annotated[

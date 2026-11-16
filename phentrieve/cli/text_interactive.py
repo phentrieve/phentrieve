@@ -278,7 +278,7 @@ def interactive_text_mode(
         typer.Option(
             "--aggregated-term-confidence",
             "-atc",
-            help="Minimum confidence score for aggregated HPO terms",
+            help="Minimum score that the best match of an aggregated HPO term must reach",
         ),
     ] = None,
     top_term_per_chunk: Annotated[

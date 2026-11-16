@@ -96,8 +96,8 @@ phentrieve text process --input-file clinical_notes.txt --output-file results.js
 ### Filtering Options
 
 ```bash
-# Set minimum confidence threshold
-phentrieve text process --min-confidence 0.4 "Patient text here..."
+# Set the minimum score for aggregated terms
+phentrieve text process --aggregated-term-confidence 0.4 "Patient text here..."
 
 # Return only the highest-scoring HPO term for each chunk
 phentrieve text process --top-term-per-chunk "Patient text here..."
@@ -105,6 +105,18 @@ phentrieve text process --top-term-per-chunk "Patient text here..."
 # Specify language for better chunking and assertion detection
 phentrieve text process --language de "Der Patient zeigt Mikrozephalie."
 ```
+
+`--aggregated-term-confidence` (profile key and API field
+`aggregated_term_confidence`) is compared with the best match of a term, i.e.
+the highest score among all chunks in which the term was found. A term that
+matches weakly in one chunk (0.55) and strongly in another (0.85) is kept at a
+threshold of 0.75, although its average score is 0.70. The reported
+`confidence` of an aggregated term is still the average over all its matches,
+so it can be lower than the threshold; the best match is reported as `score`
+(CLI) and `max_score_from_evidence` (API).
+
+Earlier versions compared the threshold with the average score. To get
+stricter filtering again, raise the value.
 
 ### Output Formats
 
