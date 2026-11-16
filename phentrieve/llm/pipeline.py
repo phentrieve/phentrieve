@@ -2153,8 +2153,11 @@ class TwoPhaseLLMPipeline:
 
         for start in range(0, len(unique_unresolved), self.mapping_batch_size):
             batch = unique_unresolved[start : start + self.mapping_batch_size]
+            # The model chooses among the candidates it is shown; local matching
+            # and the fallback below keep the full retrieved list (#523).
+            prompt_batch = [self._mapping_prompt_item(item) for item in batch]
             mapping_response, batch_usage = self._run_mapping_batch(
-                batch=batch,
+                batch=prompt_batch,
                 mapping_prompt=mapping_prompt,
             )
             request_count_total += int(
@@ -2165,7 +2168,7 @@ class TwoPhaseLLMPipeline:
             completion_tokens_total += int(batch_usage.get("completion_tokens", 0) or 0)
             selected_ids = self._select_candidate_ids(
                 mapping_response=mapping_response,
-                batch=batch,
+                batch=prompt_batch,
             )
             explicit_nulls = _explicit_null_item_ids(
                 mapping_response=mapping_response, batch=batch
@@ -2215,6 +2218,20 @@ class TwoPhaseLLMPipeline:
             local_fallback_count,
             mapping_trace,
         )
+
+    def _mapping_prompt_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Copy of ``item`` with the candidates the mapping prompt may carry.
+
+        Retrieval returns ``n_results_per_phrase`` candidates per query variant
+        so that merging across variants sees the wider lists; the prompt carries
+        the ``max_unique_candidates`` best of the merged list, by score.
+        """
+        ranked = sorted(
+            item.get("candidates", []),
+            key=lambda candidate: float(candidate.get("score", 0.0) or 0.0),
+            reverse=True,
+        )
+        return {**item, "candidates": ranked[: max(self.max_unique_candidates, 0)]}
 
     @staticmethod
     def _annotate_mapping_trace_with_provenance(

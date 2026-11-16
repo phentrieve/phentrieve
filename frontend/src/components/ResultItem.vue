@@ -122,6 +122,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import SimilarityScore from './SimilarityScore.vue';
 import PhenotypeCardRow from './PhenotypeCardRow.vue';
 
@@ -132,6 +133,8 @@ const props = defineProps({
 });
 
 defineEmits(['add-to-collection']);
+
+const { t } = useI18n();
 
 const detailsExpanded = ref(false);
 
@@ -144,11 +147,11 @@ const hasDetails = computed(() => {
 
 const assertionBadge = computed(() => {
   if (props.result.assertion_status === 'negated') {
-    return { label: 'Negated', color: 'warning' };
+    return { label: t('resultsDisplay.negated'), color: 'warning' };
   }
 
   if (props.result.assertion_status === 'uncertain') {
-    return { label: 'Uncertain', color: 'blue-grey' };
+    return { label: t('resultsDisplay.uncertain'), color: 'blue-grey' };
   }
 
   return null;
