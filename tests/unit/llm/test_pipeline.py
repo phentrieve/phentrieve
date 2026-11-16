@@ -4509,3 +4509,61 @@ def test_explicit_null_item_ids_ignores_an_unexpected_response_type():
     from phentrieve.llm.pipeline_phase2 import explicit_null_item_ids
 
     assert explicit_null_item_ids(mapping_response=object(), batch=[{}]) == set()
+
+
+def _run_with_fifty_candidates(**pipeline_kwargs):
+    """Run one deferred phrase whose retrieval returns 50 placeholder candidates."""
+    candidates = [
+        {
+            "hpo_id": f"HP:{index:07d}",
+            "term_name": f"placeholder label {index}",
+            "score": round(1.0 - index / 100, 2),
+        }
+        for index in range(1, 51)
+    ]
+    provider = FakeProvider(
+        [
+            {"phenotypes": [grounded_phenotype("term-a", "Abnormal")]},
+            {"phrase": "term-a", "hpo_id": "HP:0000002"},
+        ]
+    )
+    # Reversed, so the order in the prompt comes from the scores.
+    tool_executor = PhraseKeyedToolExecutor({"term-a": candidates[::-1]})
+    pipeline = TwoPhaseLLMPipeline(
+        provider=provider, tool_executor=tool_executor, **pipeline_kwargs
+    )
+    result = pipeline.run(
+        text="term-a",
+        grounded_chunks=[{"chunk_id": 1, "text": "term-a"}],
+        config=LLMPipelineConfig(model="gemini-2.5-flash", mode="two_phase"),
+    )
+    payload = extract_mapping_payload_from_prompt(
+        provider.structured_calls[1]["user_prompt"]
+    )
+    return result, tool_executor, [entry["id"] for entry in payload["candidates"]]
+
+
+def test_mapping_prompt_carries_at_most_max_unique_candidates() -> None:
+    # Retrieval keeps its wider count; only the mapping prompt is cut (#523).
+    result, tool_executor, prompt_ids = _run_with_fifty_candidates()
+
+    assert tool_executor.queries[0]["n_results"] == 50
+    assert prompt_ids == [f"HP:{index:07d}" for index in range(1, 11)]
+    assert [term.term_id for term in result.terms] == ["HP:0000002"]
+    # The phase-2A trace still records the full merged list.
+    traced = result.meta.trace["phase2a"]["candidate_sets"][0]["candidates"]
+    assert len(traced) == 50
+
+
+def test_mapping_prompt_respects_configured_max_unique_candidates() -> None:
+    _, _, prompt_ids = _run_with_fifty_candidates(max_unique_candidates=3)
+
+    assert prompt_ids == ["HP:0000001", "HP:0000002", "HP:0000003"]
+
+
+def test_mapping_selection_outside_the_prompt_candidates_is_rejected() -> None:
+    # The fake model answers HP:0000002, which was retrieved but is not shown.
+    result, _, prompt_ids = _run_with_fifty_candidates(max_unique_candidates=1)
+
+    assert prompt_ids == ["HP:0000001"]
+    assert result.terms == []

@@ -28,6 +28,13 @@ together:
   A record number now covers only the number, not the words after it ("MRN: AB-123456
   with seizures" lost "with seizures"), "mRNA" is no longer read as "MRN", and enzyme EC
   numbers are no longer high-confidence IP addresses.
+- **The PII dialog shows its findings.** The checkbox component was not registered in
+  the Vuetify plugin, so the list introduced with the dialog rendered empty.
+- **Negated and uncertain chips in result lists are translated.** They were the English
+  words "Negated" and "Uncertain" in every locale.
+- **A reloaded note explains why its text is gone.** The note text is not stored in the
+  browser; after a reload the history showed "[redacted]" and "1 word". It now shows a
+  translated notice and no word count.
 
 ### Changed
 

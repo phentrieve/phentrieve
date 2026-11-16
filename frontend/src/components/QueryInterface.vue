@@ -492,7 +492,9 @@ function getHistoryDisplayQuery(item) {
     return rawQuery;
   }
 
-  return typeof item?.query === 'string' ? item.query : '';
+  // After a reload only the placeholder is left; say why instead of showing it.
+  const stored = typeof item?.query === 'string' ? item.query : '';
+  return stored === REDACTED_QUERY_PLACEHOLDER ? t('queryInterface.textNotStored') : stored;
 }
 
 function isUserNoteExpanded(turnId) {
