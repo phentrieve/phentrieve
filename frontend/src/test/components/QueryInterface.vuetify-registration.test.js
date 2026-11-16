@@ -74,7 +74,7 @@ describe('QueryInterface Vuetify registration', () => {
     expect(wrapper.exists()).toBe(true);
     expect(
       warnSpy.mock.calls.some(([message]) =>
-        String(message).includes('Failed to resolve component: v-snackbar')
+        String(message).includes('Failed to resolve component: v-')
       )
     ).toBe(false);
   });
