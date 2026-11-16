@@ -18,6 +18,17 @@ together:
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-11-16 (CLI 0.32.0 / API 0.22.0 / Frontend 0.22.0)
+
+Fixes found before deploying 0.31: LLM full-text requests no longer time out after 30 s
+(#518), the mapping prompt is back to 10 candidates per phrase (#523), a failed phase-1
+request is not sent again unchanged (#375), the browser PII check stops flagging
+phenotypes and shows its findings as a list, and two dependency advisories are patched.
+
+Behaviour changes: LLM results and token use change with the candidate cap, and
+`PROMPT_BEHAVIOR_VERSION` is `8`, so earlier LLM benchmark checkpoints do not match;
+benchmark scoring counts assertion `normal` as absent (#515).
+
 ### Fixed
 
 - **The browser PII check no longer flags phenotypes and lab values.** Capitalised phrases
@@ -35,6 +46,23 @@ together:
 - **A reloaded note explains why its text is gone.** The note text is not stored in the
   browser; after a reload the history showed "[redacted]" and "1 word". It now shows a
   translated notice and no word count.
+- **LLM full-text requests get a backend-aware timeout (#518).** The request timeout came
+  from the text length alone, so short texts on the LLM backend failed with `504` after
+  30 s. LLM requests now get 180 s (270 s from 5,000 characters); the frontend waits
+  280 s and shows the timeout message for a `504` instead of the generic error.
+- **The mapping prompt carries at most `max_unique_candidates` candidates (#523).** Since
+  the batch-retrieval fix in 0.31.0 a phrase could reach the phase-2 mapping prompt with
+  up to 50 candidates. The prompt is capped at 10 again, by score; retrieval, the
+  ontology guard, local matching and the local fallback still see the full list. A
+  selected ID that was not shown to the model counts as an invalid selection.
+- **An identical phase-1 request is not sent again after invalid output (#375).** At
+  temperature 0 a retry with an unchanged request and budget repeats the failure. It is
+  now skipped for malformed responses as well as truncated ones, and the fallback goes
+  straight to smaller groups. A temperature above 0 and an empty response keep the retry.
+- **dnspython 2.9.2** (CVE-2026-128089) and **opentelemetry-api 1.45.2**
+  (CVE-2026-126360). Both advisories were published after 0.31.0 and failed the
+  dependency scan and the API image scan. The floors are enforced by the dependency
+  policy test.
 
 ### Changed
 

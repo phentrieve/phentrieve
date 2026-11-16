@@ -186,3 +186,140 @@ def test_explicit_map_skips_the_lookup(monkeypatch):
     guard_map = {"HP:0012825": frozenset({"HP:0000001", "HP:0012823"})}
     assert ontology_guard.is_non_phenotypic_abnormality("HP:0012825", guard_map)
     assert not ontology_guard.is_non_phenotypic_abnormality("HP:9999999", guard_map)
+
+
+# --- Guard filter ahead of hybrid candidate selection (#493) -----------------
+# Placeholder ids and labels: HP:90000xx sit outside the phenotype subtree,
+# HP:91000xx inside it.
+
+_NON_PHENOTYPIC_IDS = [f"HP:90000{i:02d}" for i in range(12)]
+_PHENOTYPIC_IDS = [f"HP:91000{i:02d}" for i in range(6)]
+_PLACEHOLDER_GUARD_MAP = {
+    **{t: {"HP:0000001", "HP:0012823"} for t in _NON_PHENOTYPIC_IDS},
+    **{t: {"HP:0000001", "HP:0000118"} for t in _PHENOTYPIC_IDS},
+}
+
+
+def _placeholder_item(phrase: str) -> dict:
+    return {
+        "phrase": phrase,
+        "category": "abnormal",
+        "negated_qualifier": None,
+        "chunk_ids": [1],
+        "evidence_text": phrase,
+        "start_char": 0,
+        "end_char": len(phrase),
+    }
+
+
+class _RankedHitsExecutor:
+    """Returns the same ranked ``(hpo_id, label)`` hits for every query."""
+
+    def __init__(self, hits: list[tuple[str, str]], *, shape: str) -> None:
+        self.hits = hits
+        self.shape = shape
+
+    def query_batch_hpo_terms(self, *, phrases, language, n_results):
+        scores = [0.99 - 0.005 * index for index in range(len(self.hits))]
+        if self.shape == "candidates":
+            result = {
+                "candidates": [
+                    {"hpo_id": hpo_id, "term_name": label, "score": score}
+                    for (hpo_id, label), score in zip(self.hits, scores, strict=True)
+                ]
+            }
+        else:
+            result = {
+                "metadatas": [
+                    [{"hpo_id": hpo_id, "label": label} for hpo_id, label in self.hits]
+                ],
+                "similarities": [scores],
+            }
+        return [result for _ in phrases]
+
+
+def _retrieve(hits: list[tuple[str, str]], *, shape: str, phrase: str):
+    pipeline = TwoPhaseLLMPipeline(
+        provider=MagicMock(), tool_executor=_RankedHitsExecutor(hits, shape=shape)
+    )
+    results = pipeline._retrieve_candidates(
+        actionable=[_placeholder_item(phrase)], grounded_chunks=[], language="en"
+    )
+    return pipeline, results
+
+
+def test_non_phenotypic_hits_do_not_exhaust_hybrid_selection(monkeypatch):
+    """More non-phenotypic hits than selection slots, ranked above the one
+    phenotypic hit: it must still reach routing and resolve the finding."""
+    _guard_with_map(monkeypatch, _PLACEHOLDER_GUARD_MAP)
+    hits = [(term_id, "term-a") for term_id in _NON_PHENOTYPIC_IDS]
+    hits.append((_PHENOTYPIC_IDS[0], "term-b"))
+
+    pipeline, results = _retrieve(hits, shape="metadatas", phrase="term-b")
+    assert len(_NON_PHENOTYPIC_IDS) > pipeline.max_unique_candidates
+    assert [c["hpo_id"] for c in results[0]["candidates"]] == [_PHENOTYPIC_IDS[0]]
+
+    resolved, unresolved, counts = pipeline._route_phase2_candidates(
+        phrase_candidates=results, language="en"
+    )
+    assert [t.term_id for t in resolved] == [_PHENOTYPIC_IDS[0]]
+    assert unresolved == []
+    assert counts["phase2b_no_candidate_skip_count"] == 0
+
+
+def test_phenotypic_hits_fill_slots_freed_by_non_phenotypic_hits(monkeypatch):
+    """A few non-phenotypic hits on top must not use up the min-fill quota:
+    the phenotypic hits below them fill it, with their own scores."""
+    _guard_with_map(monkeypatch, _PLACEHOLDER_GUARD_MAP)
+    hits = [(term_id, "term-a") for term_id in _NON_PHENOTYPIC_IDS[:3]]
+    hits += [(term_id, "term-b") for term_id in _PHENOTYPIC_IDS]
+
+    # The phrase shares no token with any label and the threshold is out of
+    # reach, so only the min-fill quota selects candidates.
+    pipeline = TwoPhaseLLMPipeline(
+        provider=MagicMock(),
+        tool_executor=_RankedHitsExecutor(hits, shape="metadatas"),
+        similarity_threshold=2.0,
+    )
+    results = pipeline._retrieve_candidates(
+        actionable=[_placeholder_item("unrelated wording")],
+        grounded_chunks=[],
+        language="en",
+    )
+
+    candidates = results[0]["candidates"]
+    expected = _PHENOTYPIC_IDS[: pipeline.min_unique_candidates]
+    assert [c["hpo_id"] for c in candidates] == expected
+    # Scores stay aligned with their hits after the filter (ranks 4 and up).
+    assert candidates[0]["score"] == 0.99 - 0.005 * 3
+
+
+def test_modifier_hits_never_reach_mapping_metadatas_shape(monkeypatch):
+    """Counterpart of ``test_modifier_candidates_never_reach_mapping`` for
+    results that go through hybrid selection; still one map lookup."""
+    lookups: list[int] = []
+    guard_map = {t: frozenset(a) for t, a in _PLACEHOLDER_GUARD_MAP.items()}
+
+    def _counting_map():
+        lookups.append(1)
+        return guard_map
+
+    monkeypatch.setattr(ontology_guard, "_ancestors_map", _counting_map)
+    hits = [(_NON_PHENOTYPIC_IDS[0], "term-a"), (_PHENOTYPIC_IDS[0], "term-b")]
+
+    _, results = _retrieve(hits, shape="metadatas", phrase="term-a")
+
+    assert [c["hpo_id"] for c in results[0]["candidates"]] == [_PHENOTYPIC_IDS[0]]
+    assert len(lookups) == 1
+
+
+def test_candidate_filter_fails_open_without_graph(monkeypatch):
+    """Graph unavailable: nothing is filtered, on either result shape."""
+    _guard_with_map(monkeypatch, {})
+    hits = [(term_id, "term-a") for term_id in _NON_PHENOTYPIC_IDS[:3]]
+    hits.append((_PHENOTYPIC_IDS[0], "term-b"))
+    all_ids = [hpo_id for hpo_id, _ in hits]
+
+    for shape in ("metadatas", "candidates"):
+        _, results = _retrieve(hits, shape=shape, phrase="term-a")
+        assert [c["hpo_id"] for c in results[0]["candidates"]] == all_ids

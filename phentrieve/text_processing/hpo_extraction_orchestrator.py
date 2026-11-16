@@ -110,7 +110,8 @@ def orchestrate_hpo_extraction(
         chunk_retrieval_threshold: Min similarity threshold for HPO term matches per chunk
         language: Language code (e.g. 'en', 'de')
         top_term_per_chunk: If True, only keep top term per chunk
-        min_confidence_for_aggregated: Minimum confidence threshold for aggregated terms
+        min_confidence_for_aggregated: Minimum score that the best match of an
+            aggregated term must reach for the term to be kept
         assertion_statuses: Optional list of assertion statuses per chunk
         include_details: If True, include HPO term definitions and synonyms in results
         precomputed_query_results: Optional pre-fetched per-chunk raw retrieval
