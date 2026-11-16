@@ -75,6 +75,7 @@
     "acceptButton": "Je comprends et j'accepte"
   },
   "queryInterface": {
+    "textNotStored": "Par souci de confidentialité, le texte n’est pas enregistré dans le navigateur et n’est plus affiché après un rechargement. Les résultats sont conservés.",
     "title": "Phentrieve",
     "subtitle": "Association de descriptions phénotypiques de recherche aux termes HPO",
     "welcomeText": "Phentrieve est un outil de recherche fondé sur l'IA qui associe des textes phénotypiques aux termes standardisés de la Human Phenotype Ontology (HPO), pour l'annotation en recherche et la découverte de connaissances.",
@@ -313,6 +314,7 @@
     "languageLabel": "Langue",
     "assertionLabel": "Assertion",
     "negated": "Niée",
+    "uncertain": "Incertain",
     "affirmed": "Affirmée",
     "unknown": "Inconnu",
     "similarityLabel": "Score de similarité",

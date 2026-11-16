@@ -105,7 +105,11 @@ watch(
 
 const summary = computed(() => summarizeDocumentQuery(props.noteText));
 const meta = computed(() => {
-  const words = countDocumentWords(props.noteText);
+  // The not-stored notice shown after a reload is not the note; do not count it.
+  const words =
+    props.noteText === translate('queryInterface.textNotStored', '')
+      ? 0
+      : countDocumentWords(props.noteText);
   return words
     ? translate('annotatedDocumentPane.wordCount', `${words} words`, { count: words })
     : '';
