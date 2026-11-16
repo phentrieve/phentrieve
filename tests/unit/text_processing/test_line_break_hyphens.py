@@ -52,6 +52,14 @@ def test_split_word_is_rejoined(text: str, expected: str) -> None:
         "Mikro-zephalie",  # hyphen not at a line end
         "Hypotonie - Ataxie",
         "Hypotonie\nAtaxie",  # line break without hyphen
+        "Seh-\nund Hoerstoerung",  # elided compound before a coordinator
+        "Sprach-\noder Sehstoerung",
+        "hearing-\nand speech delay",
+        "X-\nchromosomal",  # one-letter fragment
+        "IgA-\nmangel",  # fragment ends in a capital
+        "Hals-Nasen-\nohrenbefund",  # fragment already holds a hyphen
+        "Ataxie-\n\nweiterhin Fieber",  # blank line: paragraph break
+        "Ataxie-\r\n\r\nweiterhin Fieber",
         "Mikro-\n",  # nothing follows
         "",
     ],

@@ -42,6 +42,32 @@ class RejoinedText:
         return position + (self.removed_before[cuts - 1] if cuts else 0)
 
 
+# Coordinated compounds keep their hyphen: "Seh-" / "und Hoerstoerung".
+_COORDINATORS = frozenset({"und", "oder", "bzw", "sowie", "and", "or"})
+_WORD_AFTER = re.compile(r"[^\W\d_]+")
+
+
+def _keeps_its_hyphen(text: str, start: int, end: int) -> bool:
+    """True when the hyphen at ``start`` belongs to the word, not to a line split.
+
+    A blank line between the parts is a paragraph break. A fragment of one
+    letter or one that ends in a capital ("X-", "IgA-") and a fragment that
+    already holds a hyphen ("cafe-au-") are compounds, and a coordinator on
+    the next line marks an elided compound.
+    """
+    gap = text[start:end]
+    if gap.count("\n") > 1 or gap.count("\r") > 1:
+        return True
+    word_start = start
+    while word_start and not text[word_start - 1].isspace():
+        word_start -= 1
+    fragment = text[word_start:start]
+    if len(fragment) == 1 or fragment[-1:].isupper() or "-" in fragment:
+        return True
+    following = _WORD_AFTER.match(text, end)
+    return following is not None and following.group().lower() in _COORDINATORS
+
+
 def rejoin_line_break_hyphens(text: str) -> RejoinedText:
     """Rejoin words split by a hyphen at a line break; drop soft hyphens.
 
@@ -66,6 +92,7 @@ def rejoin_line_break_hyphens(text: str) -> RejoinedText:
             and (before.isalpha() or (before and unicodedata.combining(before)))
             and end < len(text)
             and text[end].islower()
+            and not _keeps_its_hyphen(text, start, end)
         )
         if not joins:
             if text[start] != SOFT_HYPHEN:
