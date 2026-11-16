@@ -111,14 +111,10 @@
     "error": "Erreur : {message}",
     "piiReview": {
       "title": "Identifiants potentiels détectés",
-      "description": "Phentrieve a détecté des identifiants personnels potentiels dans ce texte. Vérifiez-les avant l'envoi.",
-      "willRedact": "Seront masqués localement",
-      "needsReview": "À vérifier",
-      "overrideNotice": "Les identifiants détectés avec une confiance élevée seront masqués localement avant l'envoi. D'autres identifiants potentiels peuvent subsister si vous continuez.",
+      "description": "Phentrieve a détecté des identifiants personnels potentiels dans ce texte. Les éléments cochés sont remplacés par un espace réservé dans votre navigateur avant l'envoi du texte. Décochez ce qui n'est pas un identifiant.",
       "safetyAid": "Il s'agit d'une aide à la protection des données. Elle ne garantit pas que tous les identifiants personnels soient détectés, ni que le texte soit dépourvu de tout élément identifiant.",
-      "cancel": "Verifier le texte",
-      "redact": "Masquer dans le texte",
-      "continue": "Continuer avec le masquage local",
+      "cancel": "Annuler",
+      "continue": "Envoyer",
       "categories": {
         "email": "E-mail",
         "phone": "Téléphone",

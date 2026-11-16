@@ -49,11 +49,10 @@ function createController({ state = createState(), routeQuery = {}, piiFindings 
   };
   const piiReviewFlow = {
     scanSubmissionForPii: vi.fn(() => ({
-      hasFindings: piiFindings,
+      needsReview: piiFindings,
       scanResult: { summary: { high: {}, review: {} } },
     })),
     continueWithPiiRedaction: vi.fn(),
-    redactPiiInInput: vi.fn(({ setQueryText }) => setQueryText('[redacted] text')),
   };
   const router = { replace: vi.fn().mockResolvedValue(undefined) };
   const service = {
@@ -251,11 +250,13 @@ describe('useQueryInterfaceController', () => {
     expect(router.replace).toHaveBeenCalledWith({ query: { model: 'm' } });
   });
 
-  it('writes the redacted text back to the queryText ref', () => {
-    const { controller, state } = createController();
+  it('forwards the selected finding IDs to the PII review flow', async () => {
+    const { controller, piiReviewFlow } = createController();
 
-    controller.redactPiiInInput();
+    await controller.continueWithPiiRedaction(['a']);
 
-    expect(state.queryText.value).toBe('[redacted] text');
+    expect(piiReviewFlow.continueWithPiiRedaction).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedFindingIds: ['a'] })
+    );
   });
 });

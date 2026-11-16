@@ -189,6 +189,42 @@ describe('PhentrieveService', () => {
     ).rejects.toMatchObject({ status: 503, userMessageKey: 'errors.api.llmUnavailable' });
   });
 
+  it('shows the timeout message when the server stops a request with 504 (#518)', async () => {
+    axios.post.mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 504',
+      response: {
+        status: 504,
+        data: { detail: 'Text processing timed out after 180 seconds.' },
+      },
+    });
+
+    await expect(
+      PhentrieveService.processText({
+        text: 'Patient had recurrent seizures.',
+        extractionBackend: 'llm',
+        llmMode: 'two_phase',
+      })
+    ).rejects.toMatchObject({ status: 504, userMessageKey: 'errors.api.timeout' });
+  });
+
+  it('waits longer for LLM full-text requests than for standard ones (#518)', async () => {
+    axios.post.mockResolvedValue({ status: 200, data: {} });
+
+    await PhentrieveService.processText({
+      text: 'Patient had recurrent seizures.',
+      extractionBackend: 'llm',
+      llmMode: 'two_phase',
+    });
+    expect(axios.post.mock.calls.at(-1)[2].timeout).toBe(280000);
+
+    await PhentrieveService.processText({
+      text: 'Patient had recurrent seizures.',
+      extractionBackend: 'standard',
+    });
+    expect(axios.post.mock.calls.at(-1)[2].timeout).toBe(120000);
+  });
+
   it('keeps generic handling for llm 429 responses without quota fields', async () => {
     axios.post.mockRejectedValue({
       isAxiosError: true,

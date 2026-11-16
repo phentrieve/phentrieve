@@ -15,7 +15,9 @@ CANONICAL_ASSERTION_MAP: dict[str, str] = {
     "absent": "ABSENT",
     "negated": "ABSENT",
     "uncertain": "UNCERTAIN",
-    "normal": "PRESENT",
+    # A normalcy verdict says the abnormality is not there, so it scores as
+    # absent, as in export (assertion_vocab.is_excluded) and the LLM pipeline.
+    "normal": "ABSENT",
     "family_history": "FAMILY_HISTORY",
 }
 
@@ -32,6 +34,12 @@ DIRECTORY_BENCHMARK_DATASETS: tuple[str, ...] = (
     "GSC",
 )
 DEFAULT_PHENOBERT_DATASET = "all"
+INCOMPLETE_BUNDLED_DATASET = "ID_68"
+INCOMPLETE_BUNDLED_DATASET_WARNING = (
+    "The ID-68 copy shipped in tests/data/en/phenobert is incomplete (#520): "
+    "the converter dropped part of the upstream annotation rows. Do not use it "
+    "for reported results."
+)
 DEFAULT_SIMPLE_ASSERTION = "PRESENT"
 BENCHMARK_TEXT_KEYS: tuple[str, ...] = ("text", "input_text")
 
@@ -97,6 +105,9 @@ def load_phenobert_data(
         if not annotations_dir.exists():
             logger.warning("Dataset directory not found: %s", annotations_dir)
             continue
+
+        if dataset_name == INCOMPLETE_BUNDLED_DATASET:
+            logger.warning(INCOMPLETE_BUNDLED_DATASET_WARNING)
 
         for json_file in sorted(annotations_dir.glob("*.json")):
             doc_data = json.loads(json_file.read_text(encoding="utf-8"))

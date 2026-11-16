@@ -23,8 +23,10 @@ export function usePiiReviewFlow({ logService = null } = {}) {
   }) {
     const scanResult = scanPii(text, { locale });
 
-    if (!scanResult.hasFindings) {
-      return { hasFindings: false, scanResult };
+    // Only high-confidence findings interrupt the submission; review-level ones
+    // (titled names, bare dates) are offered in the dialog but never block.
+    if (!scanResult.findings.some((finding) => finding.confidence === 'high')) {
+      return { needsReview: false, scanResult };
     }
 
     const pendingSubmission = {
@@ -41,18 +43,23 @@ export function usePiiReviewFlow({ logService = null } = {}) {
       piiSummary: scanResult.summary,
     });
 
-    return { hasFindings: true, scanResult, pendingSubmission };
+    return { needsReview: true, scanResult, pendingSubmission };
   }
 
-  async function continueWithPiiRedaction({ submitQueryText } = {}) {
+  // selectedFindingIds: the findings the user left ticked in the dialog.
+  // Without it, every high-confidence finding is redacted.
+  async function continueWithPiiRedaction({ submitQueryText, selectedFindingIds } = {}) {
     const pending = pendingPiiSubmission.value;
 
     if (!pending) {
       return null;
     }
 
-    const redaction = redactPiiFindings(pending.text, pending.scanResult.findings, {
-      includeReviewFindings: false,
+    const selectedFindings = pending.scanResult.findings.filter((finding) =>
+      selectedFindingIds ? selectedFindingIds.includes(finding.id) : finding.confidence === 'high'
+    );
+    const redaction = redactPiiFindings(pending.text, selectedFindings, {
+      includeReviewFindings: true,
     });
 
     cancelPiiReview();
@@ -72,26 +79,6 @@ export function usePiiReviewFlow({ logService = null } = {}) {
     return redaction;
   }
 
-  function redactPiiInInput({ setQueryText } = {}) {
-    const pending = pendingPiiSubmission.value;
-
-    if (!pending) {
-      return null;
-    }
-
-    const redaction = redactPiiFindings(pending.text, pending.scanResult.findings, {
-      includeReviewFindings: true,
-    });
-
-    if (typeof setQueryText === 'function') {
-      setQueryText(redaction.text);
-    }
-
-    cancelPiiReview();
-
-    return redaction;
-  }
-
   return {
     piiReviewDialogVisible,
     pendingPiiSubmission,
@@ -99,6 +86,5 @@ export function usePiiReviewFlow({ logService = null } = {}) {
     cancelPiiReview,
     scanSubmissionForPii,
     continueWithPiiRedaction,
-    redactPiiInInput,
   };
 }

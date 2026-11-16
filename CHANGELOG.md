@@ -18,6 +18,43 @@ together:
 
 ## [Unreleased]
 
+### Fixed
+
+- **The browser PII check no longer flags phenotypes and lab values.** Capitalised phrases
+  ("Short Stature", "Hypoplasie der Lunge") were marked as names, and lab values, blood
+  pressure, genomic coordinates and "St. p."/"Dr." sentences as phone numbers or
+  addresses. Names without a title are no longer detected; phone numbers need an
+  international prefix, a trunk zero, a phone label or North American formatting.
+  A record number now covers only the number, not the words after it ("MRN: AB-123456
+  with seizures" lost "with seizures"), "mRNA" is no longer read as "MRN", and enzyme EC
+  numbers are no longer high-confidence IP addresses.
+
+### Changed
+
+- **The PII dialog lists each finding with its text and a checkbox.** Unticked findings
+  are sent unchanged, so false positives can be switched off. The dialog only opens for
+  high-confidence findings; titled names and bare dates no longer block submission. The
+  "Redact in text" button is gone.
+
+- **Benchmark scoring counts assertion `normal` as absent (#515).** The benchmark
+  loader mapped `normal` to `PRESENT`, while export and the LLM pipeline already treat
+  a normalcy verdict as excluded. It now maps to `ABSENT`. This changes scores for any
+  gold or predicted term labelled `normal`, and the assertion mapping is part of the
+  LLM benchmark run identity, so earlier checkpoints do not match.
+
+### Deprecated
+
+- **The bundled benchmark corpus copies and their converter scripts (#520).** The
+  copies under `tests/data/en/phenobert/` and `tests/data/en/raghpo_paper/` and the
+  scripts `convert_phenobert_data.py`, `phenobert_converter.py`,
+  `convert_raghpo_paper_data.py` and `raghpo_paper_converter.py` are no longer
+  maintained and stay only as format fixtures for the tests; removal is planned for a
+  later release. The PhenoBERT copy is incomplete: the converter drops annotation rows
+  with a text label in the fifth column, and further rows fail its span-text check.
+  ID-68 has 678 of 866 upstream rows. The
+  converter will not be repaired. The copies are not suitable for reported results, and
+  loading `ID_68` now logs a warning.
+
 ## [0.31.0] — 2026-11-09 (CLI 0.31.0 / API 0.21.0 / Frontend 0.21.0)
 
 Standard-pipeline negation of whole lists and family findings (#400), multi-word and

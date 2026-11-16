@@ -111,14 +111,10 @@
     "error": "Fout: {message}",
     "piiReview": {
       "title": "Mogelijke identificerende gegevens gevonden",
-      "description": "Phentrieve heeft mogelijke persoonsgegevens in deze tekst gevonden. Controleer ze voordat u de tekst verzendt.",
-      "willRedact": "Wordt lokaal weggelakt",
-      "needsReview": "Moet worden gecontroleerd",
-      "overrideNotice": "Identificerende gegevens met hoge betrouwbaarheid worden vóór verzending lokaal weggelakt. Andere mogelijke identificerende gegevens kunnen blijven staan als u doorgaat.",
+      "description": "Phentrieve heeft mogelijke persoonsgegevens in deze tekst gevonden. Aangevinkte items worden in uw browser door een plaatsaanduiding vervangen voordat de tekst wordt verzonden. Vink uit wat geen persoonsgegeven is.",
       "safetyAid": "Dit is een hulpmiddel. Het kan niet garanderen dat alle persoonsgegevens worden herkend of dat de tekst gede-identificeerd is.",
-      "cancel": "Tekst controleren",
-      "redact": "Weglakken in tekst",
-      "continue": "Doorgaan met lokaal weglakken",
+      "cancel": "Annuleren",
+      "continue": "Verzenden",
       "categories": {
         "email": "E-mail",
         "phone": "Telefoon",

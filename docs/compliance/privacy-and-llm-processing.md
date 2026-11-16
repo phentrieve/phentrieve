@@ -68,9 +68,11 @@ is sent to the API, the browser checks for common direct identifiers such as
 contact details, record numbers, national identifier patterns, exact date
 labels, and address-like text.
 
-High-confidence identifiers are redacted locally before submission when the user
-continues. Lower-confidence findings require explicit acknowledgement and may
-remain if the user decides to proceed.
+When a high-confidence identifier is found, a dialog lists every finding with
+the matched text. Ticked findings are replaced by a placeholder in the browser
+before submission; the user can untick false positives. Lower-confidence
+findings (titled names, bare dates) do not open the dialog on their own and are
+listed unticked. Names without a title are not detected.
 
 This feature is a safety aid. It is not a guarantee that all PII or PHI is
 detected, and it does not make submitted text HIPAA Safe Harbor de-identified,
