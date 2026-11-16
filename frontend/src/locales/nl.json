@@ -317,6 +317,7 @@
     "noTermsFound": "Geen overeenkomende HPO-termen gevonden voor uw zoekopdracht. Probeer een andere zoekopdracht of pas de gelijkenisdrempel aan.",
     "affirmed": "Bevestigd",
     "negated": "Ontkend",
+    "uncertain": "Onzeker",
     "unknown": "Onbekend",
     "cosineSimilarity": "Cosinusgelijkenis",
     "rangeExplanation": "{min} (geen gelijkenis) tot {max} (maximale gelijkenis)",

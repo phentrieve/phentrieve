@@ -313,6 +313,7 @@
     "languageLabel": "Sprache",
     "assertionLabel": "Aussage",
     "negated": "Verneint",
+    "uncertain": "Unsicher",
     "affirmed": "Bejaht",
     "unknown": "Unbekannt",
     "similarityLabel": "Ähnlichkeitswert",

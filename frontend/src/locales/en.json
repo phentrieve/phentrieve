@@ -317,6 +317,7 @@
     "noTermsFound": "No matching HPO terms found for your query. Try a different search or adjust the similarity threshold.",
     "affirmed": "Affirmed",
     "negated": "Negated",
+    "uncertain": "Uncertain",
     "unknown": "Unknown",
     "cosineSimilarity": "Cosine similarity",
     "rangeExplanation": "{min} (no similarity) to {max} (maximum similarity)",
