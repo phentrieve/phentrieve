@@ -12,45 +12,26 @@
       </v-card-title>
 
       <v-card-text>
-        <p class="mb-4">{{ $t('queryInterface.piiReview.description') }}</p>
+        <p class="mb-2">{{ $t('queryInterface.piiReview.description') }}</p>
 
-        <v-alert type="warning" variant="tonal" class="mb-4">
-          {{ $t('queryInterface.piiReview.overrideNotice') }}
-        </v-alert>
+        <v-checkbox
+          v-for="finding in findings"
+          :key="finding.id"
+          v-model="selectedIds"
+          :value="finding.id"
+          :data-testid="`pii-finding-${finding.id}`"
+          density="compact"
+          hide-details
+        >
+          <template #label>
+            <span>
+              {{ getCategoryLabel(finding.category) }}:
+              <code>{{ text.slice(finding.start, finding.end) }}</code>
+            </span>
+          </template>
+        </v-checkbox>
 
-        <div v-if="hasHighFindings" class="mb-4">
-          <div class="text-subtitle-2 mb-2">
-            {{ $t('queryInterface.piiReview.willRedact') }}
-          </div>
-          <div class="d-flex flex-wrap ga-2">
-            <v-chip
-              v-for="item in highCategoryItems"
-              :key="item.category"
-              color="warning"
-              variant="tonal"
-            >
-              {{ item.label }} ({{ item.count }})
-            </v-chip>
-          </div>
-        </div>
-
-        <div v-if="hasReviewFindings" class="mb-4">
-          <div class="text-subtitle-2 mb-2">
-            {{ $t('queryInterface.piiReview.needsReview') }}
-          </div>
-          <div class="d-flex flex-wrap ga-2">
-            <v-chip
-              v-for="item in reviewCategoryItems"
-              :key="item.category"
-              color="info"
-              variant="tonal"
-            >
-              {{ item.label }} ({{ item.count }})
-            </v-chip>
-          </div>
-        </div>
-
-        <p class="text-caption mb-0">
+        <p class="text-caption mt-4 mb-0">
           {{ $t('queryInterface.piiReview.safetyAid') }}
         </p>
       </v-card-text>
@@ -60,10 +41,7 @@
           {{ $t('queryInterface.piiReview.cancel') }}
         </v-btn>
         <v-spacer />
-        <v-btn data-testid="pii-redact" variant="tonal" @click="$emit('redact')">
-          {{ $t('queryInterface.piiReview.redact') }}
-        </v-btn>
-        <v-btn data-testid="pii-continue" color="primary" @click="$emit('continue')">
+        <v-btn data-testid="pii-continue" color="primary" @click="$emit('continue', selectedIds)">
           {{ $t('queryInterface.piiReview.continue') }}
         </v-btn>
       </v-card-actions>
@@ -79,12 +57,19 @@ export default {
       type: Boolean,
       default: false,
     },
-    summary: {
-      type: Object,
-      default: () => ({ high: {}, review: {} }),
+    text: {
+      type: String,
+      default: '',
+    },
+    findings: {
+      type: Array,
+      default: () => [],
     },
   },
-  emits: ['update:modelValue', 'cancel', 'redact', 'continue'],
+  emits: ['update:modelValue', 'cancel', 'continue'],
+  data() {
+    return { selectedIds: [] };
+  },
   computed: {
     dialogVisible: {
       get() {
@@ -94,29 +79,19 @@ export default {
         this.$emit('update:modelValue', value);
       },
     },
-    highCategoryItems() {
-      return this.categoryItems(this.summary.high);
-    },
-    reviewCategoryItems() {
-      return this.categoryItems(this.summary.review);
-    },
-    hasHighFindings() {
-      return this.highCategoryItems.length > 0;
-    },
-    hasReviewFindings() {
-      return this.reviewCategoryItems.length > 0;
+  },
+  watch: {
+    findings: {
+      immediate: true,
+      // High-confidence findings start ticked; review-level ones are opt-in.
+      handler(findings) {
+        this.selectedIds = findings
+          .filter((finding) => finding.confidence === 'high')
+          .map((finding) => finding.id);
+      },
     },
   },
   methods: {
-    categoryItems(categories = {}) {
-      return Object.entries(categories)
-        .filter(([, count]) => count > 0)
-        .map(([category, count]) => ({
-          category,
-          count,
-          label: this.getCategoryLabel(category),
-        }));
-    },
     getCategoryLabel(category) {
       return this.$t(`queryInterface.piiReview.categories.${category}`);
     },

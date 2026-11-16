@@ -2,6 +2,14 @@
 """
 Convert PhenoBERT corpus datasets to Phentrieve JSON format.
 
+DEPRECATED: this script and its converter are no longer maintained and will not be repaired.
+Known defect (#520): the converter's PATTERN_PROCESSED accepts only an empty or numeric fifth
+column, so annotation rows with a text label there are dropped, and further
+rows fail its span-text check (ID-68 keeps 678 of 866 upstream rows). The
+converted copy in tests/data/en/phenobert is kept only as a format fixture for
+the tests and is not suitable for reported results. Removal is planned for a
+later release.
+
 Converts three PhenoBERT datasets:
 - GSC+ (BiolarkGSC+): 228 PubMed abstracts
 - ID-68: 68 clinical notes from intellectual disability families

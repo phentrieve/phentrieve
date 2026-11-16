@@ -75,6 +75,7 @@
     "acceptButton": "Ich habe verstanden und stimme zu"
   },
   "queryInterface": {
+    "textNotStored": "Der Text wird aus Datenschutzgründen nicht im Browser gespeichert und ist nach dem Neuladen nicht mehr sichtbar. Die Ergebnisse bleiben erhalten.",
     "title": "Phentrieve",
     "subtitle": "HPO-Begriffszuordnung für Phänotypbeschreibungen in der Forschung",
     "welcomeText": "Phentrieve ist ein KI-gestütztes Forschungswerkzeug, das Phänotyptexte für die Forschungsannotation und Wissensgewinnung standardisierten Begriffen der Human Phenotype Ontology (HPO) zuordnet.",
@@ -111,14 +112,10 @@
     "error": "Fehler: {message}",
     "piiReview": {
       "title": "Mögliche Kennungen erkannt",
-      "description": "Phentrieve hat in diesem Text mögliche personenbezogene Kennungen gefunden. Prüfen Sie diese vor dem Absenden.",
-      "willRedact": "Wird lokal geschwärzt",
-      "needsReview": "Prüfung erforderlich",
-      "overrideNotice": "Kennungen mit hoher Konfidenz werden vor dem Absenden lokal geschwärzt. Andere mögliche Kennungen können erhalten bleiben, wenn Sie fortfahren.",
+      "description": "Phentrieve hat in diesem Text mögliche personenbezogene Kennungen gefunden. Angehakte Stellen werden in Ihrem Browser durch einen Platzhalter ersetzt, bevor der Text gesendet wird. Entfernen Sie den Haken bei allem, was keine Kennung ist.",
       "safetyAid": "Dies ist eine Hilfe zum Datenschutz. Sie kann nicht garantieren, dass alle personenbezogenen Kennungen erkannt werden oder der Text de-identifiziert ist.",
-      "cancel": "Text prüfen",
-      "redact": "Im Text schwärzen",
-      "continue": "Mit lokaler Schwärzung fortfahren",
+      "cancel": "Abbrechen",
+      "continue": "Senden",
       "categories": {
         "email": "E-Mail",
         "phone": "Telefon",
@@ -317,6 +314,7 @@
     "languageLabel": "Sprache",
     "assertionLabel": "Aussage",
     "negated": "Verneint",
+    "uncertain": "Unsicher",
     "affirmed": "Bejaht",
     "unknown": "Unbekannt",
     "similarityLabel": "Ähnlichkeitswert",

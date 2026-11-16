@@ -75,6 +75,7 @@
     "acceptButton": "Entiendo y acepto"
   },
   "queryInterface": {
+    "textNotStored": "Por privacidad, el texto no se guarda en el navegador y deja de mostrarse tras recargar la página. Los resultados se conservan.",
     "title": "Phentrieve",
     "subtitle": "Mapeo de términos HPO para descripciones de fenotipos en investigación",
     "welcomeText": "Phentrieve es una herramienta de investigación impulsada por IA que mapea texto de fenotipos a términos estandarizados de la Ontología de Fenotipos Humanos (HPO) para la anotación en investigación y el descubrimiento de conocimiento.",
@@ -111,14 +112,10 @@
     "error": "Error: {message}",
     "piiReview": {
       "title": "Posibles identificadores detectados",
-      "description": "Phentrieve encontró posibles identificadores personales en este texto. Revíselos antes de enviarlo.",
-      "willRedact": "Se enmascararán localmente",
-      "needsReview": "Requiere revisión",
-      "overrideNotice": "Los identificadores de alta confianza se enmascararán localmente antes del envío. Si continúa, pueden quedar otros posibles identificadores.",
+      "description": "Phentrieve encontró posibles identificadores personales en este texto. Los elementos marcados se sustituyen por un marcador en su navegador antes de enviar el texto. Desmarque lo que no sea un identificador.",
       "safetyAid": "Es una ayuda de seguridad. No puede garantizar que se detecten todos los identificadores personales ni que el texto quede desidentificado.",
-      "cancel": "Revisar texto",
-      "redact": "Enmascarar en el texto",
-      "continue": "Continuar con enmascaramiento local",
+      "cancel": "Cancelar",
+      "continue": "Enviar",
       "categories": {
         "email": "Correo electrónico",
         "phone": "Teléfono",
@@ -317,6 +314,7 @@
     "languageLabel": "Idioma",
     "assertionLabel": "Aserción",
     "negated": "Negada",
+    "uncertain": "Incierto",
     "affirmed": "Afirmada",
     "unknown": "Desconocido",
     "similarityLabel": "Puntuación de similitud",

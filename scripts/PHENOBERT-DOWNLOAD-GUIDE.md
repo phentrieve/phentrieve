@@ -1,5 +1,14 @@
 # PhenoBERT Data Download Guide
 
+> **Deprecated.** The PhenoBERT converter this guide feeds
+> (`scripts/convert_phenobert_data.py`) is no longer maintained and will not be
+> repaired. Known defect (#520): its `PATTERN_PROCESSED` accepts only an empty
+> or numeric fifth column, so annotation rows with a text label there are
+> dropped, and further rows fail its span-text check (ID-68 keeps 678 of 866
+> upstream rows, GSC+ 2,073 of 2,082, GeneReviews 346 of 352). The converted copy in `tests/data/en/phenobert/` is
+> kept only as a format fixture for the tests and is not suitable for reported
+> results. Removal is planned for a later release.
+
 **For Reproducibility**: Always download a specific version/commit of the PhenoBERT dataset.
 
 ## Recommended Approach: Download Specific Commit

@@ -64,6 +64,14 @@ uv run python scripts/run_llm_model_benchmarks.py \
 
 ### `convert_phenobert_data.py`
 
+> **Deprecated.** This converter is no longer maintained and will not be
+> repaired. Known defect (#520): its `PATTERN_PROCESSED` accepts only an empty
+> or numeric fifth column, so annotation rows with a text label there are
+> dropped, and further rows fail its span-text check (ID-68 keeps 678 of 866
+> upstream rows, GSC+ 2,073 of 2,082, GeneReviews 346 of 352). The converted copy in `tests/data/en/phenobert/` is
+> kept only as a format fixture for the tests and is not suitable for reported
+> results. Removal is planned for a later release.
+
 Convert PhenoBERT corpus datasets (GSC+, ID-68, GeneReviews) to Phentrieve JSON format.
 
 **Prerequisites:**
@@ -140,6 +148,11 @@ tests/data/en/phenobert/         # Test data organized by language
 ---
 
 ### `convert_raghpo_paper_data.py`
+
+> **Deprecated.** This converter is no longer maintained. The converted copy
+> in `tests/data/en/raghpo_paper/` is kept only as a format fixture for the
+> tests. Known data-quality findings are tracked in #130. Removal is planned
+> for a later release.
 
 Convert the released RAG-HPO paper benchmark artifacts into the same
 per-document JSON fixture shape already used by the converted PhenoBERT

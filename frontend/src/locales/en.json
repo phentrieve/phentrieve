@@ -75,6 +75,7 @@
     "acceptButton": "I understand and agree"
   },
   "queryInterface": {
+    "textNotStored": "For privacy, the text is not stored in the browser and is no longer shown after a reload. The results are kept.",
     "title": "Phentrieve",
     "subtitle": "HPO term mapping for research phenotype text",
     "welcomeText": "Phentrieve is an AI-powered research tool that maps phenotype text to standardized Human Phenotype Ontology (HPO) terms for research annotation and knowledge discovery.",
@@ -111,14 +112,10 @@
     "error": "Error: {message}",
     "piiReview": {
       "title": "Possible identifiers detected",
-      "description": "Phentrieve found possible personal identifiers in this text. Review them before submitting.",
-      "willRedact": "Will be redacted locally",
-      "needsReview": "Needs review",
-      "overrideNotice": "High-confidence identifiers will be redacted locally before submission. Other possible identifiers may remain if you continue.",
+      "description": "Phentrieve found possible personal identifiers in this text. Ticked items are replaced by a placeholder in your browser before the text is sent. Untick anything that is not an identifier.",
       "safetyAid": "This is a safety aid. It cannot guarantee that all personal identifiers are detected or that the text is de-identified.",
-      "cancel": "Review text",
-      "redact": "Redact in text",
-      "continue": "Continue with local redaction",
+      "cancel": "Cancel",
+      "continue": "Send",
       "categories": {
         "email": "Email",
         "phone": "Phone",
@@ -321,6 +318,7 @@
     "noTermsFound": "No matching HPO terms found for your query. Try a different search or adjust the similarity threshold.",
     "affirmed": "Affirmed",
     "negated": "Negated",
+    "uncertain": "Uncertain",
     "unknown": "Unknown",
     "cosineSimilarity": "Cosine similarity",
     "rangeExplanation": "{min} (no similarity) to {max} (maximum similarity)",

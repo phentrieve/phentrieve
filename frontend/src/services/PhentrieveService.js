@@ -29,10 +29,13 @@ const buildRequestConfig = (extra = {}) => {
   }
   return { headers, ...extra };
 };
-// LLM full-text extraction can take a minute or more; single queries are fast but
-// may hit a cold model load on the server.
+// Single queries are fast but may hit a cold model load on the server.
 const QUERY_TIMEOUT_MS = 60000;
 const TEXT_PROCESS_TIMEOUT_MS = 120000;
+// LLM full-text extraction needs several provider requests. The server allows it
+// up to 270 s, so wait a little longer to receive its timeout response (504)
+// instead of aborting first. Stays below the 300 s proxy read timeout.
+const LLM_TEXT_PROCESS_TIMEOUT_MS = 280000;
 const getSerializedSize = (value) => JSON.stringify(value)?.length || 0;
 // Log the response size from the Content-Length header instead of re-serializing
 // the body on every response (full-text results can exceed 1 MB). Null when the
@@ -109,7 +112,13 @@ class PhentrieveService {
       const response = await axios.post(
         `${API_URL}/text/process`,
         normalizedPayload,
-        buildRequestConfig({ timeout: TEXT_PROCESS_TIMEOUT_MS, signal })
+        buildRequestConfig({
+          timeout:
+            normalizedPayload.extraction_backend === 'llm'
+              ? LLM_TEXT_PROCESS_TIMEOUT_MS
+              : TEXT_PROCESS_TIMEOUT_MS,
+          signal,
+        })
       );
 
       logService.debug('Text Processing API response received', {
@@ -373,6 +382,10 @@ class PhentrieveService {
         break;
       case 503:
         key = 'errors.api.serviceUnavailable';
+        break;
+      case 504:
+        // The server stopped the request at its own timeout
+        key = 'errors.api.timeout';
         break;
       // Add more specific cases as needed
     }

@@ -12,7 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from api.routers.text_processing_router import process_text_extract_hpo
+from api.routers.text_processing_router import (
+    _timeout_seconds,
+    process_text_extract_hpo,
+)
 from api.schemas.text_processing_schemas import TextProcessingRequest
 from api.services.text_processing_execution import process_text_via_shared_service
 from phentrieve.config import DEFAULT_MODEL
@@ -128,6 +131,52 @@ class TestAdaptiveTimeout:
                 # Verify 180s timeout
                 args, kwargs = mock_wait.call_args
                 assert kwargs.get("timeout") == 180 or args[1] == 180
+
+
+class TestBackendAwareTimeout:
+    """The LLM backend needs several provider requests, whatever the text length."""
+
+    @pytest.mark.parametrize(
+        ("text_length", "expected"),
+        [(0, 30), (499, 30), (500, 60), (1999, 60), (2000, 120), (5000, 180)],
+    )
+    def test_standard_backend_keeps_length_based_tiers(self, text_length, expected):
+        assert _timeout_seconds(text_length, "standard") == expected
+
+    @pytest.mark.parametrize(
+        ("text_length", "expected"),
+        [(0, 180), (248, 180), (4999, 180), (5000, 270), (50000, 270)],
+    )
+    def test_llm_backend_gets_longer_timeouts(self, text_length, expected):
+        assert _timeout_seconds(text_length, "llm") == expected
+
+    def test_llm_timeouts_stay_below_proxy_read_timeout(self):
+        assert _timeout_seconds(50000, "llm") < 300
+
+    @pytest.mark.asyncio
+    async def test_short_llm_request_waits_180s(self):
+        request = TextProcessingRequest(
+            text_content="Short text" * 10,
+            extraction_backend="llm",
+        )
+
+        with (
+            patch("api.routers.text_processing_router.quota_enforced") as enforced,
+            patch("api.routers.text_processing_router.asyncio.wait_for") as mock_wait,
+        ):
+            enforced.return_value = False
+            mock_wait.side_effect = _raise_timeout_and_close
+
+            with pytest.raises(HTTPException) as exc_info:
+                await process_text_extract_hpo(MagicMock(), request)
+
+        _args, kwargs = mock_wait.call_args
+        assert kwargs["timeout"] == 180
+        assert exc_info.value.status_code == 504
+        detail = exc_info.value.detail
+        assert "180 seconds" in detail
+        assert "standard extraction backend" in detail
+        assert "chunking strategy" not in detail
 
 
 class TestTimeoutHandling:
