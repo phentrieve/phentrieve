@@ -187,7 +187,7 @@ def test_transitive_security_floors_are_pinned_in_constraints() -> None:
         "pillow": Version("13.0.0"),  # GHSA-5x8w-8jj5-q52h and friends
         "filelock": Version("4.2.1"),  # GHSA-v4x8-3wr5-3wq8 and friends
         "fsspec": Version("2026.6.0"),  # GHSA-27vj-qcqg-25rc
-        "opentelemetry-api": Version("1.45.1"),  # GHSA-xcq7-p3pf-p88h
+        "opentelemetry-api": Version("1.45.2"),  # GHSA-xcq7-p3pf-p88h, CVE-2026-126360
         "certifi": Version("2026.10.19"),  # PYSEC-2026-4320
     }
     for name, floor in expected.items():
@@ -236,12 +236,13 @@ def test_authlib_uses_the_patched_cve_2026_96760_release() -> None:
     assert _uv_packages()["authlib"] >= Version("1.9.0")
 
 
-def test_dnspython_uses_the_patched_cve_2026_114605_release() -> None:
-    """dnspython arrives transitively; pip-audit flags 2.8.0 (fixed in 2.9.0)."""
+def test_dnspython_uses_the_patched_release() -> None:
+    """dnspython arrives transitively; pip-audit flags 2.8.0 (CVE-2026-114605,
+    fixed in 2.9.0) and 2.9.0 (CVE-2026-128089, fixed in 2.9.2)."""
     constraints = _pyproject()["tool"]["uv"]["constraint-dependencies"]
 
-    assert any(c.startswith("dnspython>=2.9.0") for c in constraints)
-    assert _uv_packages()["dnspython"] >= Version("2.9.0")
+    assert any(c.startswith("dnspython>=2.9.2") for c in constraints)
+    assert _uv_packages()["dnspython"] >= Version("2.9.2")
 
 
 def test_setuptools_uses_the_patched_pysec_2026_3447_release() -> None:
