@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -4530,11 +4531,15 @@ def _run_with_fifty_candidates(**pipeline_kwargs):
     pipeline = TwoPhaseLLMPipeline(
         provider=provider, tool_executor=tool_executor, **pipeline_kwargs
     )
-    result = pipeline.run(
-        text="term-a",
-        grounded_chunks=[{"chunk_id": 1, "text": "term-a"}],
-        config=LLMPipelineConfig(model="gemini-2.5-flash", mode="two_phase"),
-    )
+    # The placeholder IDs collide with real root terms when local HPO data exists.
+    with patch.object(
+        pipeline_module, "is_non_phenotypic_abnormality", return_value=False
+    ):
+        result = pipeline.run(
+            text="term-a",
+            grounded_chunks=[{"chunk_id": 1, "text": "term-a"}],
+            config=LLMPipelineConfig(model="gemini-2.5-flash", mode="two_phase"),
+        )
     payload = extract_mapping_payload_from_prompt(
         provider.structured_calls[1]["user_prompt"]
     )

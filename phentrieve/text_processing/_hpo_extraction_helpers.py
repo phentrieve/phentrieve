@@ -14,6 +14,10 @@ from typing import Any
 
 from phentrieve.config import DEFAULT_HPO_DB_FILENAME
 from phentrieve.data_processing.hpo_database import HPODatabase
+from phentrieve.llm.ontology_guard import (
+    is_non_phenotypic_abnormality,
+    load_guard_map,
+)
 from phentrieve.retrieval.text_attribution import get_text_attributions
 from phentrieve.utils import get_default_data_dir, resolve_data_path
 
@@ -37,11 +41,21 @@ def process_chunk_matches(
     fallback; ``build_evidence_map`` refines it per match using
     ``negated_scope_texts`` (assessment defect D1).
 
+    Terms known to sit outside the Phenotypic abnormality subtree (clinical
+    modifier, clinical course, mode of inheritance, ...) are skipped: they are
+    not patient phenotypes (#468). A skipped term does not use up one of the
+    num_results_per_chunk slots or the top_term_per_chunk slot, so the next
+    retrieved candidate takes its place. The guard fails open: unknown terms
+    are kept, and nothing is skipped when the HPO graph is unavailable.
+
     Returns one dict per input chunk with keys: chunk_idx, chunk_text,
     matches (list of {id, name, score, assertion_status}), and
     negated_scope_texts.
     """
     chunk_results: list[dict[str, Any]] = []
+    # Loaded once: the guard checks every candidate of every chunk below.
+    guard_map = load_guard_map()
+    non_phenotype_skipped = 0
     for chunk_idx, chunk_text in enumerate(text_chunks):
         try:
             query_results = all_query_results[chunk_idx]
@@ -61,6 +75,9 @@ def process_chunk_matches(
                 hpo_id = metadata.get("id") or metadata.get("hpo_id")
                 name = metadata.get("label") or metadata.get("name")
                 if not (hpo_id and name):
+                    continue
+                if is_non_phenotypic_abnormality(hpo_id, guard_map):
+                    non_phenotype_skipped += 1
                     continue
                 current_hpo_matches.append(
                     {
@@ -99,6 +116,11 @@ def process_chunk_matches(
         except Exception:
             logger.exception("Failed to process chunk %s", chunk_idx + 1)
             continue
+    if non_phenotype_skipped:
+        logger.info(
+            "Skipped %d chunk matches outside the Phenotypic abnormality subtree",
+            non_phenotype_skipped,
+        )
     return chunk_results
 
 
@@ -267,6 +289,11 @@ def aggregate_and_rank(
     avg_score, confidence, chunks, top_evidence_chunk_idx,
     text_attributions, assertion_status, status, and optionally
     definition + synonyms when include_details is True. Ranks start at 1.
+
+    A term is kept when its best match (``score``) reaches
+    ``min_confidence_for_aggregated``; ``avg_score`` and ``confidence`` stay
+    the mean over all evidence and can therefore be below the threshold.
+    Terms are ranked by avg_score, then score, then count (all descending).
     """
     aggregated_list: list[dict[str, Any]] = []
     for hpo_id, evidence_list in evidence_map.items():
@@ -274,9 +301,11 @@ def aggregate_and_rank(
             continue
         total_score = sum(e["score"] for e in evidence_list)
         avg_score = total_score / len(evidence_list)
-        if avg_score < min_confidence_for_aggregated:
-            continue
         max_score = max(e["score"] for e in evidence_list)
+        # The threshold applies to the term's best match, so one strong match
+        # is not hidden by weaker matches of the same term in other chunks.
+        if max_score < min_confidence_for_aggregated:
+            continue
         top_evidence_chunk_idx = next(
             e["chunk_idx"] for e in evidence_list if e["score"] == max_score
         )
@@ -311,7 +340,7 @@ def aggregate_and_rank(
             term["synonyms"] = hpo_synonyms_cache.get(hpo_id, [])
         aggregated_list.append(term)
 
-    aggregated_list.sort(key=lambda x: (-x["avg_score"], -x["count"]))
+    aggregated_list.sort(key=lambda x: (-x["avg_score"], -x["score"], -x["count"]))
     for idx, term in enumerate(aggregated_list):
         term["rank"] = idx + 1
     return aggregated_list
