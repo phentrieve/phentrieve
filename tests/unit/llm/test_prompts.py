@@ -488,7 +488,11 @@ def _mapping_payload_description(system_prompt: str) -> str:
     ids=["single", "batch"],
 )
 def test_mapping_prompts_describe_the_compacted_payload(get_template) -> None:
-    description = _mapping_payload_description(get_template("en").system_prompt)
+    system_prompt = get_template("en").system_prompt
+    (untrusted,) = [line for line in system_prompt.splitlines() if "untrusted" in line]
+    for key in ("retrieval_query", "matched_text", "matched_component"):
+        assert key in untrusted, key
+    description = _mapping_payload_description(system_prompt)
     lines = [line.strip() for line in description.splitlines()]
 
     item_query_lines = [line for line in lines if line.startswith("- retrieval_query")]
