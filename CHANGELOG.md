@@ -48,14 +48,15 @@ below change pipeline results, so earlier LLM benchmark checkpoints do not match
   weakly in another could be dropped. Results are a superset of before; the added
   terms have a `confidence` (still the average) below the threshold and sort after the
   earlier ones.
-- **The phase-1 prompt states more assertion and measurement cases (#504, #495).**
-  Template `v3.4.0`. "Not only X but also Y" and course statements about an abnormal
+- **The phase-1 prompt states more assertion cases (#504).**
+  Template `v3.4.1`. "Not only X but also Y" and course statements about an abnormal
   finding ("no improvement of the ataxia") are not negations; a negation word inside
   the name of a disorder or organism ("non-Hodgkin lymphoma") is part of the term. A
   finding still to be ruled out is uncertain, one that has been ruled out is absent,
-  and a reported result of the work-up wins. A measurement whose abnormal
-  interpretation is stated in the note is a phenotype; a bare value, or a word that
-  only describes a change over time, is not. The effect on extraction is not measured.
+  and a reported result of the work-up wins. The measurement rules are unchanged:
+  an abnormality is not inferred from numbers. The prompt is English only again: the
+  German, French and Spanish cue words added since 0.30.0 are replaced by one sentence
+  that the rules apply in any language. The effect on extraction is not measured.
 - **The mapping prompts state which candidate to choose by specificity (#380).**
   Templates `v4.2.0`. The model takes the most specific candidate the phrase and its
   chunks support, falls back to the more general one instead of adding an unstated
