@@ -58,11 +58,11 @@ below change pipeline results, so earlier LLM benchmark checkpoints do not match
   German, French and Spanish cue words added since 0.30.0 are replaced by one sentence
   that the rules apply in any language. The effect on extraction is not measured.
 - **The mapping prompts state which candidate to choose by specificity (#380).**
-  Templates `v4.2.0`. The model takes the most specific candidate the phrase and its
-  chunks support, falls back to the more general one instead of adding an unstated
-  laterality, severity, onset or subtype, and returns null only when no candidate
-  describes the finding or all contradict a stated detail. A normal item takes the
-  most general candidate the text excludes. The effect on mapping is not measured.
+  Templates `v4.2.1`. The model takes the most specific candidate the phrase and its
+  chunk texts support and does not add a laterality, severity, onset or subtype the
+  note does not state. It returns null when none of the candidates describes the
+  finding; this replaces the vaguer "no clear match". The effect on mapping is not
+  measured.
 - **The phase-2 mapping payload is smaller (#499).** `retrieval_query` is sent once per
   item and per candidate only when it differs, `matched_text` only when it differs
   from the term, and `retrieval_score` with four decimals. Candidate count and order
