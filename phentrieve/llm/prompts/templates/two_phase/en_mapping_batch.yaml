@@ -1,4 +1,4 @@
-version: "v4.1.0"
+version: "v4.2.0"
 
 system_prompt: |
   You map clinical phenotype phrases to HPO terms.
@@ -29,12 +29,17 @@ system_prompt: |
   - Use the grounded context to disambiguate.
   - Treat retrieval_score as a hint, not the only decision rule.
   - Prefer semantic equivalence over lexical similarity.
-  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context.
-  - If no candidate is a clear match, return null for that item_id.
+  - For each item, choose the most specific candidate that is fully supported. Support means the phrase itself and what primary_chunk_text or neighbor_chunk_texts say about that same finding. A laterality, severity, onset, or subtype stated for a different finding is not support.
+  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate that still names the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null.
+  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context: the most general candidate for the finding that the text excludes. Do not narrow it with a laterality, severity, onset, or subtype.
+  - If none of the candidates describes the finding of the phrase, return null for that item_id. A candidate that contradicts a laterality, severity, onset, or subtype stated for the finding does not describe it.
   - Never invent an HPO id outside the candidates list.
 
   Output JSON only:
   {"mappings": [{"item_id": "item_1", "hpo_id": "HP:XXXXXXX"}]}
+
+  If none of the candidates describes the finding of an item:
+  {"mappings": [{"item_id": "item_1", "hpo_id": null}]}
 
 user_prompt_template: |
   Map the following JSON payload to the best HPO candidate.
@@ -44,11 +49,4 @@ user_prompt_template: |
   {text}
   UNTRUSTED_MAPPING_PAYLOAD_END
 
-few_shot_examples:
-  - input: |
-      Map the following JSON payload to the best HPO candidate.
-      Return JSON only.
-
-      Payload:
-      {"items": [{"item_id": "item_1", "primary_chunk_text": "Physical examination revealed scoliosis and joint hypermobility", "neighbor_chunk_texts": [], "phrase": "scoliosis", "category": "abnormal", "candidates": [{"id": "HP:0002650", "term": "Scoliosis", "retrieval_score": 0.99}, {"id": "HP:0100884", "term": "Compensatory scoliosis", "retrieval_score": 0.42}]}, {"item_id": "item_2", "primary_chunk_text": "The child has frequent falls while walking.", "neighbor_chunk_texts": [], "phrase": "frequent falls", "category": "abnormal", "candidates": [{"id": "HP:0002355", "term": "Difficulty walking", "retrieval_score": 0.93}, {"id": "HP:0002317", "term": "Unsteady gait", "retrieval_score": 0.67}]}]}
-    output: '{"mappings": [{"item_id": "item_1", "hpo_id": "HP:0002650"}, {"item_id": "item_2", "hpo_id": "HP:0002355"}]}'
+few_shot_examples: []

@@ -21,7 +21,7 @@ def test_get_mapping_prompt_loads_packaged_template() -> None:
     template = loader.get_mapping_prompt("fr")
 
     assert template.language == "fr"
-    assert template.version == "v4.1.0"
+    assert template.version == "v4.2.0"
     assert "You map clinical phenotype phrases to HPO terms." in template.system_prompt
     assert Path(template.source_path).as_posix().endswith("two_phase/en_mapping.yaml")
 
@@ -32,7 +32,7 @@ def test_get_batch_mapping_prompt_uses_shared_english_template_with_requested_la
     template = loader.get_batch_mapping_prompt("de")
 
     assert template.language == "de"
-    assert template.version == "v4.1.0"
+    assert template.version == "v4.2.0"
     assert (
         Path(template.source_path)
         .as_posix()
@@ -67,9 +67,11 @@ def test_load_prompt_template_prefers_user_override(monkeypatch, tmp_path) -> No
 
 
 def test_prompt_template_builds_messages_with_examples() -> None:
-    template = loader.get_mapping_prompt("en")
+    template = loader.get_prompt(AnnotationMode.DIRECT, "en")
+    assert template.few_shot_examples
+
     messages = template.get_messages(
-        '{"phrase": "scoliosis", "grounded_context": {}, "candidates": []}',
+        "The patient has scoliosis.",
         include_examples=True,
     )
 
@@ -107,12 +109,93 @@ def test_mapping_prompt_renders_requested_language_in_system_prompt() -> None:
     assert "retrieval_score" in rendered
 
 
-def test_mapping_prompts_keep_single_compact_example() -> None:
+def test_mapping_prompts_have_no_few_shot_examples() -> None:
+    # Providers send only a system and a user message for phase 2, so examples
+    # in these templates would never reach the model.
     single = loader.get_mapping_prompt("en")
     batch = loader.get_batch_mapping_prompt("en")
 
-    assert len(single.few_shot_examples) == 1
-    assert len(batch.few_shot_examples) == 1
+    assert single.few_shot_examples == []
+    assert batch.few_shot_examples == []
+
+
+def test_mapping_prompts_carry_current_version() -> None:
+    assert loader.get_mapping_prompt("en").version == "v4.2.0"
+    assert loader.get_batch_mapping_prompt("en").version == "v4.2.0"
+
+
+def _mapping_rules(system_prompt: str) -> str:
+    return system_prompt.split("Rules:", 1)[1].split("Output JSON only:", 1)[0]
+
+
+def _both_mapping_prompts() -> list[str]:
+    return [
+        loader.get_mapping_prompt("en").system_prompt,
+        loader.get_batch_mapping_prompt("en").system_prompt,
+    ]
+
+
+def test_mapping_prompts_state_term_specificity_rule() -> None:
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
+
+        assert "most specific candidate that is fully supported" in rules
+        assert "adds a laterality, severity, onset, or subtype" in rules
+        assert rules.index("Prefer semantic equivalence") < rules.index(
+            "most specific candidate"
+        )
+
+
+def test_mapping_prompts_define_what_counts_as_support() -> None:
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
+
+        # A phrase's own second chunk arrives as a neighbour chunk, so
+        # neighbours count for the same finding.
+        assert "primary_chunk_text or neighbor_chunk_texts say" in rules
+        assert "stated for a different finding is not support" in rules
+
+
+def test_mapping_prompts_give_specificity_rule_a_fallback_before_null() -> None:
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
+
+        assert "choose that more general candidate" in rules
+        assert "that still names the same finding" in rules
+        assert "least unsupported detail instead of returning null" in rules
+        # One null rule in the whole prompt: a looser "no (clear) match" would
+        # let the model return null for an over-specific candidate after all.
+        assert rules.count("return null") == 1
+        assert "clear match" not in system_prompt
+        assert "no candidate matches" not in system_prompt.lower()
+        assert system_prompt.count('"hpo_id": null') == 1
+
+
+def test_mapping_prompts_reject_contradicting_candidates() -> None:
+    for system_prompt in _both_mapping_prompts():
+        # "mild X" with only "severe X" listed is null, not the nearest sibling.
+        assert "contradicts a laterality, severity, onset, or subtype" in (
+            _mapping_rules(system_prompt)
+        )
+
+
+def test_mapping_prompts_keep_normal_items_general() -> None:
+    for system_prompt in _both_mapping_prompts():
+        assert "most general candidate for the finding that the text excludes" in (
+            _mapping_rules(system_prompt)
+        )
+
+
+def test_mapping_prompts_keep_null_and_candidate_only_rules() -> None:
+    single = loader.get_mapping_prompt("en").system_prompt
+    batch = loader.get_batch_mapping_prompt("en").system_prompt
+
+    null_rule = "- If none of the candidates describes the finding of the phrase, "
+    assert null_rule + "return null." in single
+    assert null_rule + "return null for that item_id." in batch
+    for system_prompt in (single, batch):
+        assert "- Never invent an HPO id outside the candidates list." in system_prompt
+        assert "- Prefer semantic equivalence over lexical similarity." in system_prompt
 
 
 def test_batch_mapping_prompt_prefix_stays_stable_before_variable_context() -> None:
@@ -146,8 +229,6 @@ def test_batch_mapping_prompt_requires_item_id_based_selections() -> None:
     assert '{"mappings": [{"item_id": "item_1", "hpo_id": "HP:XXXXXXX"}]}' in (
         template.system_prompt
     )
-    assert '"item_id": "item_1"' in template.few_shot_examples[0]["input"]
-    assert '"item_id": "item_1"' in template.few_shot_examples[0]["output"]
 
 
 def test_list_available_prompts_includes_benchmark_families() -> None:
