@@ -18,8 +18,8 @@ together:
 
 ## [Unreleased]
 
-`PROMPT_BEHAVIOR_VERSION` is `9`: the two LLM candidate and phrase fixes below change
-pipeline results, so earlier LLM benchmark checkpoints do not match.
+`PROMPT_BEHAVIOR_VERSION` is `10`: the LLM prompt, payload, candidate and phrase changes
+below change pipeline results, so earlier LLM benchmark checkpoints do not match.
 
 ### Fixed
 
@@ -48,6 +48,26 @@ pipeline results, so earlier LLM benchmark checkpoints do not match.
   weakly in another could be dropped. Results are a superset of before; the added
   terms have a `confidence` (still the average) below the threshold and sort after the
   earlier ones.
+- **The phase-1 prompt states more assertion and measurement cases (#504, #495).**
+  Template `v3.4.0`. "Not only X but also Y" and course statements about an abnormal
+  finding ("no improvement of the ataxia") are not negations; a negation word inside
+  the name of a disorder or organism ("non-Hodgkin lymphoma") is part of the term. A
+  finding still to be ruled out is uncertain, one that has been ruled out is absent,
+  and a reported result of the work-up wins. A measurement whose abnormal
+  interpretation is stated in the note is a phenotype; a bare value, or a word that
+  only describes a change over time, is not. The effect on extraction is not measured.
+- **The mapping prompts state which candidate to choose by specificity (#380).**
+  Templates `v4.2.0`. The model takes the most specific candidate the phrase and its
+  chunks support, falls back to the more general one instead of adding an unstated
+  laterality, severity, onset or subtype, and returns null only when no candidate
+  describes the finding or all contradict a stated detail. A normal item takes the
+  most general candidate the text excludes. The effect on mapping is not measured.
+- **The phase-2 mapping payload is smaller (#499).** `retrieval_query` is sent once per
+  item and per candidate only when it differs, `matched_text` only when it differs
+  from the term, and `retrieval_score` with four decimals. Candidate count and order
+  are unchanged, and both mapping prompts describe the payload.
+- **Unused few-shot examples are removed from the two-phase templates (#378).** They
+  were never sent to a model and only entered the prompt identity.
 
 ## [0.32.0] — 2026-11-16 (CLI 0.32.0 / API 0.22.0 / Frontend 0.22.0)
 
