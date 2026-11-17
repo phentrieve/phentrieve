@@ -45,5 +45,3 @@ user_prompt_template: |
   UNTRUSTED_MAPPING_PAYLOAD_BEGIN
   {text}
   UNTRUSTED_MAPPING_PAYLOAD_END
-
-few_shot_examples: []

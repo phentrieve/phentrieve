@@ -82,10 +82,6 @@ def build_prompt_bundle_identity(
         )
         if component_name != "extraction":
             template = replace(template, language=language)
-        emitted_examples = [
-            {"input": example.get("input", ""), "output": example.get("output", "")}
-            for example in template.few_shot_examples
-        ]
         if component_name == "extraction":
             resolved_system_template = template.render_system_prompt()
             resolved_user_template = template.render_user_prompt(
@@ -100,7 +96,8 @@ def build_prompt_bundle_identity(
         effective_content: dict[str, Any] = {
             "component_name": component_name,
             "component_version": template.version,
-            "few_shot_examples": emitted_examples,
+            # Constant: examples were never sent (#378); the key keeps hashes stable.
+            "few_shot_examples": [],
             "language": language,
             "mode": mode,
             "resolved_system_template": resolved_system_template,

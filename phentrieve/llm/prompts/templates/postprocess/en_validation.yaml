@@ -65,5 +65,3 @@ user_prompt_template: |
   1. Valid (keep in validated_annotations)
   2. A false positive (move to removed_annotations with reason)
   3. Needs correction (move to corrected_annotations with changes)
-
-few_shot_examples: []

@@ -73,5 +73,3 @@ user_prompt_template: |
   ---
   {text}
   ---
-
-few_shot_examples: []

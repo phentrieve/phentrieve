@@ -17,19 +17,16 @@ def _write_bundle(
             "version": "v3",
             "system_prompt": extraction_text,
             "user_prompt_template": "Clinical note: {text}",
-            "few_shot_examples": [{"input": "short stature", "output": "HP:0004322"}],
         },
         "en_mapping.yaml": {
             "version": "v2",
             "system_prompt": "Map a phrase.",
             "user_prompt_template": "Phrase: {text}",
-            "few_shot_examples": [],
         },
         "en_mapping_batch.yaml": {
             "version": "v4",
             "system_prompt": "Map several phrases.",
             "user_prompt_template": "Payload: {text}",
-            "few_shot_examples": [],
         },
     }
     for filename, content in prompts.items():
@@ -46,7 +43,6 @@ def test_yaml_whitespace_and_key_order_do_not_change_component_hash(
 
     extraction = tmp_path / "two_phase" / "en.yaml"
     extraction.write_text(
-        "few_shot_examples:\n  - output: HP:0004322\n    input: short stature\n"
         "user_prompt_template: 'Clinical note: {text}'\n"
         "system_prompt: Extract phenotypes.\nversion: v3\n",
         encoding="utf-8",
@@ -156,42 +152,20 @@ def test_non_english_bundle_uses_localized_extraction_and_runtime_english_mappin
     assert german.components[1:] == after_localized_mapping_change.components[1:]
 
 
-def test_ignored_few_shot_metadata_does_not_change_hash(tmp_path: Path) -> None:
+def test_few_shot_examples_in_a_template_do_not_change_identity(
+    tmp_path: Path,
+) -> None:
+    # Examples are never sent to a model (#378), so a user template that still
+    # carries the key has the same identity as one without it.
     _write_bundle(tmp_path)
     before = build_prompt_bundle_identity("two_phase", "en", tmp_path)
     extraction = tmp_path / "two_phase" / "en.yaml"
     content = yaml.safe_load(extraction.read_text(encoding="utf-8"))
-    content["few_shot_examples"][0]["note"] = "not emitted"
+    content["few_shot_examples"] = [{"input": "short stature", "output": "HP:0004322"}]
     extraction.write_text(yaml.safe_dump(content), encoding="utf-8")
 
     after = build_prompt_bundle_identity("two_phase", "en", tmp_path)
-    assert before.components[0].sha256 == after.components[0].sha256
-
-
-def test_missing_and_empty_few_shot_fields_emit_same_identity(tmp_path: Path) -> None:
-    _write_bundle(tmp_path)
-    extraction = tmp_path / "two_phase" / "en.yaml"
-    content = yaml.safe_load(extraction.read_text(encoding="utf-8"))
-    content["few_shot_examples"] = [{}]
-    extraction.write_text(yaml.safe_dump(content), encoding="utf-8")
-    missing = build_prompt_bundle_identity("two_phase", "en", tmp_path)
-
-    content["few_shot_examples"] = [{"input": "", "output": ""}]
-    extraction.write_text(yaml.safe_dump(content), encoding="utf-8")
-    explicit_empty = build_prompt_bundle_identity("two_phase", "en", tmp_path)
-    assert missing.components[0].sha256 == explicit_empty.components[0].sha256
-
-
-def test_emitted_few_shot_content_changes_component_hash(tmp_path: Path) -> None:
-    _write_bundle(tmp_path)
-    before = build_prompt_bundle_identity("two_phase", "en", tmp_path)
-    extraction = tmp_path / "two_phase" / "en.yaml"
-    content = yaml.safe_load(extraction.read_text(encoding="utf-8"))
-    content["few_shot_examples"][0]["output"] = "HP:9999999"
-    extraction.write_text(yaml.safe_dump(content), encoding="utf-8")
-
-    after = build_prompt_bundle_identity("two_phase", "en", tmp_path)
-    assert before.components[0].sha256 != after.components[0].sha256
+    assert before.sha256 == after.sha256
 
 
 def test_component_version_changes_component_and_bundle_hash(tmp_path: Path) -> None:

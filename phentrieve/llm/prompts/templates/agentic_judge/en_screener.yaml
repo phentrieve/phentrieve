@@ -32,5 +32,3 @@ user_prompt_template: |
   Identify phenotype phrases in these numbered sentences:
 
   {text}
-
-few_shot_examples: []

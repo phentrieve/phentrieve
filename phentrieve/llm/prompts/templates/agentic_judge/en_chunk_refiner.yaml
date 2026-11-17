@@ -59,5 +59,3 @@ user_prompt_template: |
 
   INITIAL RETRIEVAL RESULTS:
   {results_table}
-
-few_shot_examples: []
