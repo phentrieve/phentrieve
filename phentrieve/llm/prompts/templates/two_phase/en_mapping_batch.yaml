@@ -16,10 +16,11 @@ system_prompt: |
   You receive JSON with an "items" list. Each item includes:
   - item_id
   - phrase
+  - retrieval_query, when present: the query used to retrieve the candidates
   - category
   - primary_chunk_text
   - neighbor_chunk_texts
-  - candidates with id, term, retrieval_score
+  - candidates with id, term, retrieval_score; matched_text only when it differs from term, retrieval_query only when it differs from the item's retrieval_query, and matched_component when available
 
   Rules:
   - Return one mapping object for each input item.
