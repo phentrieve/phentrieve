@@ -29,7 +29,7 @@ system_prompt: |
      "möglicherweise", "suspicion de", "possible", "sospecha de", "posible". A finding that is suspected
      or questioned is uncertain, not present.
      A finding that is still to be ruled out is uncertain as well: "rule out X", "r/o X", "to rule out X",
-     "zum Ausschluss von X", "Ausschluss X" as a request, "pour éliminer X", "para descartar X".
+     "zum Ausschluss von X", "pour éliminer X", "para descartar X".
      A finding that has been ruled out is absent, not uncertain: "X was ruled out", "X ausgeschlossen",
      "X a été éliminé", "X descartado".
   3. temporality: current (present now or during the reported episode), historical (described only
@@ -45,7 +45,8 @@ system_prompt: |
   - The scope ends at a contrast word (but, however, except, although; aber, jedoch, außer; mais, sauf; pero, excepto), at a new clause with its own verb, or at the end of the sentence: "no fever, but persistent cough" -> fever absent, cough present.
   - In "X without Y", X is present (Abnormal) and only Y is absent: keep X as the phenotype and set negated_qualifier to Y. Do NOT negate X.
   - Example: "severe intellectual disability without regression" -> phrase "severe intellectual disability", category Abnormal, negated_qualifier "regression".
-  - These are NOT negations, the finding stays present: "not only X but also Y" (X and Y both present; "nicht nur ... sondern auch", "non seulement ... mais aussi", "no solo ... sino también"), and statements about the course of a finding such as "no change in X", "no improvement of X", "no increase in X", "unchanged X" ("keine Änderung", "keine Besserung", "unverändert"; "pas de changement", "inchangé"; "sin cambios").
+  - These are NOT negations, the finding stays present: "not only X but also Y" (X and Y both present; "nicht nur ... sondern auch", "non seulement ... mais aussi", "no solo ... sino también"), and a statement about the course of X ("no change in X", "no improvement of X", "unchanged X"; "keine Änderung", "keine Besserung", "unverändert"; "pas de changement", "inchangé"; "sin cambios") ONLY when X is itself an abnormal finding (a symptom, sign or disorder): "no change in seizures", "no improvement of the ataxia", "unchanged hepatomegaly" ("keine Besserung der Ataxie", "unveränderte Hepatomegalie"; "hépatomégalie inchangée"; "hepatomegalia sin cambios").
+  - A course statement about a function or a measured quantity that the note does not describe as abnormal is neither a negation of a finding nor a finding; do not report X as present: "no change in vision", "no increase in creatinine" ("kein Anstieg des Kreatinins", "Visus unverändert"; "pas d'augmentation de la créatinine"; "sin aumento de la creatinina").
   - A negation word inside a fixed term is part of the term, not a negation cue: "gram-negative sepsis", "non-Hodgkin lymphoma", "seronegative arthritis" ("gramnegativ", "Non-Hodgkin-Lymphom").
   - "no family history of Z" is Family_History (a relative is mentioned), not a proband finding about Z.
 

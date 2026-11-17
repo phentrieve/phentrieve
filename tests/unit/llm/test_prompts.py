@@ -334,13 +334,46 @@ def test_phase1_prompt_lists_pseudo_negations_in_negation_scope() -> None:
         "not only X but also Y",
         "no change in X",
         "no improvement of X",
-        "no increase in X",
+        "unchanged X",
         "nicht nur",
         "keine Änderung",
         "unverändert",
         "gram-negative",
     ):
         assert cue in negation_scope, cue
+
+
+def test_phase1_prompt_limits_course_statements_to_abnormal_findings() -> None:
+    lines = _section(
+        _phase1_system_prompt(), "Negation scope:", "Extraction rules:"
+    ).splitlines()
+    (not_negations,) = [line for line in lines if "NOT negations" in line]
+    (counter_case,) = [line for line in lines if "function or a measured" in line]
+
+    # A course statement keeps a finding present only when X is itself an
+    # abnormal finding.
+    assert (
+        "ONLY when X is itself an abnormal finding (a symptom, sign or disorder)"
+        in not_negations
+    )
+    for example in (
+        '"no change in seizures"',
+        '"no improvement of the ataxia"',
+        '"unchanged hepatomegaly"',
+    ):
+        assert example in not_negations, example
+    # "no increase in X" is not among the not-negation cues.
+    assert "increase" not in not_negations
+    assert "Anstieg" not in not_negations
+
+    # A function or measured quantity that is not described as abnormal must
+    # not be reported as present.
+    assert "that the note does not describe as abnormal" in counter_case
+    assert "neither a negation of a finding nor a finding" in counter_case
+    assert "do not report X as present" in counter_case
+    for example in ('"no change in vision"', '"no increase in creatinine"'):
+        assert example in counter_case, example
+    assert _phase1_system_prompt().count("no increase in") == 1
 
 
 def test_phase1_prompt_treats_rule_out_as_uncertain_and_ruled_out_as_absent() -> None:
@@ -350,6 +383,13 @@ def test_phase1_prompt_treats_rule_out_as_uncertain_and_ruled_out_as_absent() ->
 
     for cue in ('"rule out X"', '"r/o X"', '"zum Ausschluss von X"'):
         assert cue in assertion_axis, cue
+    for cue in ('"to rule out X"', '"pour éliminer X"', '"para descartar X"'):
+        assert cue in assertion_axis, cue
+    # Only unambiguous request forms: a bare "Ausschluss X" can also report a
+    # result, so it is not listed as a cue for uncertain.
+    assert '"Ausschluss X"' not in assertion_axis
+    assert "as a request" not in assertion_axis
+    assert assertion_axis.count("Ausschluss") == 1
     assert "still to be ruled out is uncertain" in assertion_axis
     assert "has been ruled out is absent, not uncertain" in assertion_axis
     assert '"X was ruled out"' in assertion_axis
