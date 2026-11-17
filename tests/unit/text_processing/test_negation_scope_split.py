@@ -180,6 +180,75 @@ def test_german_chunk_in_scope_stays_one_negated_chunk(de, text) -> None:
     assert [status for _, status in chunks] == ["negated"], chunks
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Echocardiography without pathological findings.",
+        "Abdominal ultrasound without abnormalities.",
+        "Brain MRI with no abnormality.",
+        "Cranial MRI with no signs of pathology.",
+        "Abdominal ultrasound without evidence of abnormalities.",
+        # the examination is the agent of the excluding verb
+        "Seizures were excluded by EEG.",
+        "Epilepsy was ruled out by EEG.",
+    ],
+)
+def test_examination_with_normal_result_stays_one_negated_chunk(en, text) -> None:
+    assert _chunks(en, text) == [(text.rstrip("."), "negated")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Sonographie der Nieren ohne Auff\u00e4lligkeiten.",
+        "Echokardiographie ohne pathologischen Befund.",
+        "EEG ohne relevante Auff\u00e4lligkeiten.",
+        "Sch\u00e4del-MRT ohne Besonderheiten.",
+        "Sonographie des Abdomens ohne Hinweis auf Pathologie.",
+    ],
+)
+def test_german_examination_with_normal_result_stays_one_negated_chunk(
+    de, text
+) -> None:
+    assert _chunks(de, text) == [(text.rstrip("."), "negated")]
+
+
+def test_generic_noun_beside_a_finding_still_splits(en, de) -> None:
+    assert _chunks(en, "Short stature with no signs of scoliosis.") == [
+        ("Short stature", "affirmed"),
+        ("no signs of scoliosis", "negated"),
+    ]
+    assert _chunks(de, "Kleinwuchs ohne Hinweis auf Skoliose.") == [
+        ("Kleinwuchs", "affirmed"),
+        ("ohne Hinweis auf Skoliose", "negated"),
+    ]
+
+
+def test_finding_after_a_terminator_still_splits_from_a_normal_result(en) -> None:
+    text = "Echocardiography without abnormalities except mild mitral regurgitation."
+
+    assert _chunks(en, text) == [
+        ("Echocardiography without abnormalities", "negated"),
+        ("mild mitral regurgitation", "affirmed"),
+    ]
+
+
+def test_split_positions_index_the_text_with_line_break_hyphens(de) -> None:
+    text = "Entwick-\nlungsverzoegerung besteht. Kleinwuchs seit der Ge-\nburt ohne Sko-\nliose."
+
+    chunks = de.process(text, include_positions=True)
+
+    assert [(chunk["text"], chunk["status"].value) for chunk in chunks][1:] == [
+        ("Kleinwuchs seit der Geburt", "affirmed"),
+        ("ohne Skoliose", "negated"),
+    ]
+    for chunk in chunks:
+        original = text[chunk["start_char"] : chunk["end_char"]]
+        assert original.replace("-\n", "") == chunk["text"]
+    assert text[chunks[1]["start_char"] :].startswith("Kleinwuchs seit der Ge-\nburt")
+    assert text[: chunks[2]["end_char"]].endswith("ohne Sko-\nliose")
+
+
 def test_negated_lists_are_unchanged(en, de) -> None:
     assert _chunks(en, "No hepatomegaly or splenomegaly.") == [
         ("hepatomegaly", "negated"),

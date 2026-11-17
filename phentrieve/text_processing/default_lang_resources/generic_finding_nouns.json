@@ -1,0 +1,65 @@
+{
+    "en": [
+        "abnormality",
+        "abnormalities",
+        "finding",
+        "findings",
+        "pathology",
+        "pathologies",
+        "anomaly",
+        "anomalies",
+        "evidence",
+        "sign",
+        "signs"
+    ],
+    "de": [
+        "Auffälligkeit",
+        "Auffälligkeiten",
+        "Auffaelligkeit",
+        "Auffaelligkeiten",
+        "Befund",
+        "Befunde",
+        "Pathologie",
+        "Pathologien",
+        "Besonderheit",
+        "Besonderheiten",
+        "Hinweis",
+        "Hinweise",
+        "Anhalt"
+    ],
+    "fr": [
+        "anomalie",
+        "anomalies",
+        "particularité",
+        "particularités",
+        "pathologie",
+        "pathologies",
+        "signe",
+        "signes"
+    ],
+    "es": [
+        "hallazgo",
+        "hallazgos",
+        "alteración",
+        "alteraciones",
+        "anomalía",
+        "anomalías",
+        "particularidad",
+        "particularidades",
+        "patología",
+        "patologías",
+        "signo",
+        "signos"
+    ],
+    "nl": [
+        "afwijking",
+        "afwijkingen",
+        "bijzonderheid",
+        "bijzonderheden",
+        "bevinding",
+        "bevindingen",
+        "pathologie",
+        "aanwijzing",
+        "aanwijzingen"
+    ]
+}

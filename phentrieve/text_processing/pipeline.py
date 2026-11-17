@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 
 _SENTENCE_BREAKS = (".", "!", "?", ";", "\n")
 _SUBJECT_DEPS = ("nsubj", "nsubjpass", "nsubj:pass", "sb")
+# The agent of a passive ("excluded by EEG"): en, de (TIGER) and UD labels.
+_AGENT_DEPS = ("agent", "sbp", "obl:agent")
 FAMILY_EXPERIENCER = "family_history"
 # A relative who reports, not has, the finding (en/de/fr/es/nl verb lemmas).
 _REPORTING_LEMMAS = frozenset(
@@ -109,6 +111,7 @@ class _SentenceContext:
         self.negation = load_context_cues(language, "NEGATED_EXISTENCE")
         self.terminate = load_context_cues(language, "TERMINATE")
         self.family = load_context_cues(language, "FAMILY")
+        self.generic_nouns = _language_words("generic_finding_nouns", language)
         self._docs: dict[int, Any] = {}
 
     def sentence_start(self, pos: int) -> int:
@@ -147,6 +150,22 @@ class _SentenceContext:
 
     def has_noun(self, start: int, end: int) -> bool:
         return any(t.pos_ in ("NOUN", "PROPN") for t in self.tokens(start, end))
+
+    def only_generic_nouns(self, start: int, end: int) -> bool:
+        """True if every noun in [start, end) only says "finding" ("Befund")."""
+        nouns = [t for t in self.tokens(start, end) if t.pos_ in ("NOUN", "PROPN")]
+        return bool(nouns) and all(
+            t.lower_ in self.generic_nouns or t.lemma_.lower() in self.generic_nouns
+            for t in nouns
+        )
+
+    def agent_in(self, cue: tuple[int, int], start: int, end: int) -> bool:
+        """True if [start, end) holds the agent of the cue's verb ("by EEG")."""
+        heads = {node for token in self.tokens(*cue) for node in token.ancestors}
+        heads.update(self.tokens(*cue))
+        return any(
+            t.dep_ in _AGENT_DEPS and t.head in heads for t in self.tokens(start, end)
+        )
 
     def subject_in(self, cue: tuple[int, int], start: int, end: int) -> bool:
         """True if the clause the cue belongs to has its subject in [start, end).
@@ -196,17 +215,19 @@ class _SentenceContext:
         return False
 
 
+def _language_words(name: str, language: str) -> frozenset[str]:
+    """The word list ``name`` for the language (bundled, or the user's file)."""
+    config = load_user_config().get("language_resources", {})
+    resource = load_language_resource(f"{name}.json", f"{name}_file", config)
+    return frozenset(w.strip() for w in resource.get(language, resource.get("en", [])))
+
+
 def _function_words(language: str) -> tuple[frozenset[str], frozenset[str]]:
     """Words the chunk cleaner strips at the start and at the end of a chunk."""
-    config = load_user_config().get("language_resources", {})
-
-    def words(name: str) -> set[str]:
-        resource = load_language_resource(f"{name}.json", f"{name}_file", config)
-        return {w.strip() for w in resource.get(language, resource.get("en", []))}
-
     return (
-        frozenset(words("leading_cleanup_words") | words("low_semantic_value_words")),
-        frozenset(words("trailing_cleanup_words")),
+        _language_words("leading_cleanup_words", language)
+        | _language_words("low_semantic_value_words", language),
+        _language_words("trailing_cleanup_words", language),
     )
 
 
@@ -246,6 +267,11 @@ def _negation_scope_parts(
     chunk is in scope or the scope is unclear: no cue or cues of mixed
     direction, no noun in the scope ("seizures were not observed"), or a cue in
     the same clause as the text on its other side.
+
+    The text next to the cue stays with the scope when it names an examination
+    and not a finding: the scope holds only generic nouns ("Ultrasound without
+    abnormalities"), or that text is the agent of the cue's verb ("excluded by
+    EEG").
     """
     cues = context.cues(context.negation, context_start, end)
     # "no" inside "no evidence of" is the same cue
@@ -280,6 +306,13 @@ def _negation_scope_parts(
         or (facing[0] < facing[1] and context.subject_in(cue, *facing))
     ):
         return None
+    if facing in outside and (
+        context.only_generic_nouns(*findings) or context.agent_in(cue, *facing)
+    ):
+        outside.remove(facing)
+        scope = (min(scope[0], facing[0]), max(scope[1], facing[1]))
+        if not outside:
+            return None
     return scope, outside
 
 
@@ -522,13 +555,15 @@ class TextProcessingPipeline:
         chunks: list[dict[str, Any]],
         spans: list[tuple[int, int]],
         context_starts: list[int],
+        rejoined: RejoinedText,
     ) -> None:
         """Give text outside a negation cue's scope its own chunk (#521).
 
         A chunk has one status, so "Seizures since age 2 with no fever" was
         negated as a whole. The part outside the scope becomes a chunk with its
         own detected status, unless it holds only function words. Chunks that
-        are in scope as a whole are left alone.
+        are in scope as a whole are left alone. Spans index ``rejoined.text``;
+        reported positions are mapped back to the caller's text.
         """
         if context.nlp is None:
             return
@@ -565,7 +600,8 @@ class TextProcessingPipeline:
                     context.text[piece_start:piece_end]
                 )
                 if "start_char" in chunk:
-                    piece["start_char"], piece["end_char"] = piece_start, piece_end
+                    piece["start_char"] = rejoined.original_start(piece_start)
+                    piece["end_char"] = rejoined.original_end(piece_end)
             chunks[idx : idx + 1] = [piece for piece, _ in pieces]
             spans[idx : idx + 1] = [span for _, span in pieces]
             context_starts[idx : idx + 1] = [context_starts[idx]] * len(pieces)
@@ -770,6 +806,7 @@ class TextProcessingPipeline:
                 processed_chunks_with_assertion,
                 chunk_document_spans,
                 assertion_context_starts,
+                rejoined,
             )
             _propagate_list_negation(
                 context, processed_chunks_with_assertion, chunk_document_spans
