@@ -237,7 +237,7 @@ def test_parse_threads_explicit_model_assertion():
 
 def test_parse_treats_schema_default_assertion_as_unset():
     """(b) B1 regression crux: the model OMITTED assertion (a category-only
-    ``Normal`` finding, as the extraction few-shots teach it to emit) -> the
+    ``Normal`` finding, as the extraction prompt asks for) -> the
     schema default ``"present"`` is NOT in ``model_fields_set`` -> the parsed
     item must thread ``None``, NOT the defaulted ``"present"``.
 

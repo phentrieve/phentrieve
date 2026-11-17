@@ -57,5 +57,3 @@ user_prompt_template: |
   ---
 
   Be thorough: search for ALL phenotypes across all organ systems, then respond with compact JSON only.
-
-few_shot_examples: []

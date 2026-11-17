@@ -63,5 +63,3 @@ user_prompt_template: |
   1. Consider if a more specific HPO term would be more accurate
   2. Use query_hpo_terms to search for more specific alternatives if needed
   3. Return kept_annotations (optimal as-is) and refined_annotations (upgraded)
-
-few_shot_examples: []

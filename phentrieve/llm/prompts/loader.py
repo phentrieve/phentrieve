@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -40,7 +40,6 @@ class PromptTemplate:
     system_prompt: str
     user_prompt_template: str
     grounded_user_prompt_template: str = ""
-    few_shot_examples: list[dict[str, str]] = field(default_factory=list)
     version: str = "v1"
     mode: str = ""
     language: str = DEFAULT_LLM_LANGUAGE
@@ -99,27 +98,6 @@ class PromptTemplate:
             chunk_index=chunk_index,
             **kwargs,
         )
-
-    def get_messages(
-        self,
-        text: str,
-        *,
-        include_examples: bool = True,
-        **kwargs: Any,
-    ) -> list[dict[str, str]]:
-        messages = [{"role": "system", "content": self.render_system_prompt(**kwargs)}]
-
-        if include_examples:
-            for example in self.few_shot_examples:
-                messages.append({"role": "user", "content": example.get("input", "")})
-                messages.append(
-                    {"role": "assistant", "content": example.get("output", "")}
-                )
-
-        messages.append(
-            {"role": "user", "content": self.render_user_prompt(text, **kwargs)}
-        )
-        return messages
 
 
 def _mode_to_dir(mode: AnnotationMode | PostProcessingStep | str) -> str:
@@ -230,7 +208,6 @@ def _load_yaml_template(
         grounded_user_prompt_template=str(
             data.get("grounded_user_prompt_template", "") or ""
         ),
-        few_shot_examples=list(data.get("few_shot_examples", [])),
         version=str(data.get("version", "v1")),
         mode=mode,
         language=resolved_language,

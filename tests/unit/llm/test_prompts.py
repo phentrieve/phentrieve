@@ -66,20 +66,6 @@ def test_load_prompt_template_prefers_user_override(monkeypatch, tmp_path) -> No
     assert template.source_path == str(user_path.resolve())
 
 
-def test_prompt_template_builds_messages_with_examples() -> None:
-    template = loader.get_prompt(AnnotationMode.DIRECT, "en")
-    assert template.few_shot_examples
-
-    messages = template.get_messages(
-        "The patient has scoliosis.",
-        include_examples=True,
-    )
-
-    assert messages[0]["role"] == "system"
-    assert messages[-1]["role"] == "user"
-    assert any(message["role"] == "assistant" for message in messages)
-
-
 def test_mapping_prompt_prefix_stays_stable_before_variable_context() -> None:
     template = loader.get_mapping_prompt("en")
 
@@ -109,14 +95,14 @@ def test_mapping_prompt_renders_requested_language_in_system_prompt() -> None:
     assert "retrieval_score" in rendered
 
 
-def test_mapping_prompts_have_no_few_shot_examples() -> None:
-    # Providers send only a system and a user message for phase 2, so examples
-    # in these templates would never reach the model.
-    single = loader.get_mapping_prompt("en")
-    batch = loader.get_batch_mapping_prompt("en")
+def test_packaged_templates_define_no_few_shot_examples() -> None:
+    # Providers send only a system and a user message, so examples in a
+    # template would never reach the model (#378).
+    templates = sorted(Path(loader.PACKAGE_TEMPLATES_DIR).rglob("*.yaml"))
+    assert templates
 
-    assert single.few_shot_examples == []
-    assert batch.few_shot_examples == []
+    for path in templates:
+        assert "few_shot_examples" not in path.read_text(encoding="utf-8"), path.name
 
 
 def test_mapping_prompts_carry_current_version() -> None:
@@ -257,10 +243,10 @@ def test_loader_supports_direct_and_postprocess_prompt_families() -> None:
 
 def test_tool_guided_prompts_render_tool_query_default_from_config() -> None:
     template = loader.get_prompt(AnnotationMode.TOOL_TEXT, "en")
-    messages = template.get_messages("Patient has seizures.", include_examples=False)
+    expected = f"num_results={DEFAULT_TOOL_QUERY_RESULTS}"
 
-    assert f"num_results={DEFAULT_TOOL_QUERY_RESULTS}" in messages[0]["content"]
-    assert f"num_results={DEFAULT_TOOL_QUERY_RESULTS}" in messages[-1]["content"]
+    assert expected in template.render_system_prompt()
+    assert expected in template.render_user_prompt("Patient has seizures.")
 
 
 def test_tool_guided_prompt_sources_use_placeholder_not_hardcoded_default() -> None:
@@ -509,11 +495,10 @@ def test_phase1_prompt_separates_raw_values_from_interpreted_measurements() -> N
     assert "or measurements as standalone" not in system_prompt
 
 
-def test_phase1_template_has_no_few_shot_examples_and_is_v3_4_0() -> None:
+def test_phase1_template_is_v3_4_0_and_keeps_its_placeholders() -> None:
     template = loader.get_prompt(AnnotationMode.TWO_PHASE, "en")
 
     assert template.version == "v3.4.0"
-    assert template.few_shot_examples == []
     assert "{chunk_index}" in template.user_prompt_template
     assert "{text}" in template.user_prompt_template
 

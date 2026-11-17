@@ -82,5 +82,3 @@ user_prompt_template: |
   1. Verify it is supported by the text (remove false positives)
   2. Check the assertion status is correct (affirmed/negated/uncertain)
   3. Consider if a more specific HPO term would be more accurate
-
-few_shot_examples: []

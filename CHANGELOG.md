@@ -66,8 +66,10 @@ below change pipeline results, so earlier LLM benchmark checkpoints do not match
   item and per candidate only when it differs, `matched_text` only when it differs
   from the term, and `retrieval_score` with four decimals. Candidate count and order
   are unchanged, and both mapping prompts describe the payload.
-- **Unused few-shot examples are removed from the two-phase templates (#378).** They
-  were never sent to a model and only entered the prompt identity.
+- **Unused few-shot examples are removed from all prompt templates (#378).** They were
+  never sent to a model and only entered the prompt identity. `PromptTemplate` no
+  longer has `few_shot_examples` and `get_messages()`; a `few_shot_examples` key in a
+  user template is ignored.
 
 ## [0.32.0] — 2026-11-16 (CLI 0.32.0 / API 0.22.0 / Frontend 0.22.0)
 
