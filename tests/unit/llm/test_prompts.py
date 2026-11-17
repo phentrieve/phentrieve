@@ -474,3 +474,38 @@ def test_prompt_security_rules_cover_required_attack_classes() -> None:
         "clinical decision",
     ]:
         assert required in joined
+
+
+def _mapping_payload_description(system_prompt: str) -> str:
+    """Return the "You receive" list, without the rules or anything after them."""
+    start = system_prompt.index("You receive")
+    return system_prompt[start : system_prompt.index("Rules:", start)]
+
+
+@pytest.mark.parametrize(
+    "get_template",
+    [loader.get_mapping_prompt, loader.get_batch_mapping_prompt],
+    ids=["single", "batch"],
+)
+def test_mapping_prompts_describe_the_compacted_payload(get_template) -> None:
+    system_prompt = get_template("en").system_prompt
+    (untrusted,) = [line for line in system_prompt.splitlines() if "untrusted" in line]
+    for key in ("retrieval_query", "matched_text", "matched_component"):
+        assert key in untrusted, key
+    description = _mapping_payload_description(system_prompt)
+    lines = [line.strip() for line in description.splitlines()]
+
+    item_query_lines = [line for line in lines if line.startswith("- retrieval_query")]
+    assert len(item_query_lines) == 1
+    assert "query used to retrieve the candidates" in item_query_lines[0]
+
+    candidate_lines = [line for line in lines if line.startswith("- candidates")]
+    assert len(candidate_lines) == 1
+    candidate_line = candidate_lines[0]
+    for key in ("id", "term", "retrieval_score", "matched_component"):
+        assert key in candidate_line
+    assert "matched_text only when it differs from term" in candidate_line
+    assert (
+        "retrieval_query only when it differs from the item's retrieval_query"
+        in candidate_line
+    )
