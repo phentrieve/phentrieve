@@ -300,6 +300,7 @@ class ToolExecutor:
                 assertion_config={"disable": False},
                 sbert_model_for_semantic_chunking=self._cached_embedding_model,
                 rejoin_line_break_hyphens=False,
+                split_negation_scope=False,
             )
 
         if self._cached_retriever is None:

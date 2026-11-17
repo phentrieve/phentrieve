@@ -439,6 +439,7 @@ class TextProcessingPipeline:
         assertion_config: dict,
         sbert_model_for_semantic_chunking: SentenceTransformer | None = None,
         rejoin_line_break_hyphens: bool = True,
+        split_negation_scope: bool = True,
     ):
         """
         Initialize the text processing pipeline.
@@ -463,12 +464,16 @@ class TextProcessingPipeline:
             rejoin_line_break_hyphens: Rejoin words split by a hyphen at a line
                 break ("Entwick-\nlung") before chunking. Reported positions
                 still index the text passed to ``process``.
+            split_negation_scope: Give text outside a negation cue's scope its
+                own chunk (#521). Off in the LLM path, where the phase-1
+                prompt decides the scope.
         """
         self.language = language
         self.chunking_pipeline_config = chunking_pipeline_config
         self.assertion_config = assertion_config
         self.sbert_model = sbert_model_for_semantic_chunking
         self.rejoin_line_break_hyphens = rejoin_line_break_hyphens
+        self.split_negation_scope = split_negation_scope
 
         # Create chunkers list
         self.chunkers = self._create_chunkers()
@@ -565,7 +570,7 @@ class TextProcessingPipeline:
         are in scope as a whole are left alone. Spans index ``rejoined.text``;
         reported positions are mapped back to the caller's text.
         """
-        if context.nlp is None:
+        if context.nlp is None or not self.split_negation_scope:
             return
         leading, trailing = _function_words(self.language)
         idx = 0

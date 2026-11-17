@@ -122,6 +122,8 @@ def build_grounded_chunks_from_text_pipeline(
         ),
         # Evidence matching already tolerates line-break hyphens (#462).
         rejoin_line_break_hyphens=False,
+        # The phase-1 prompt decides the negation scope; keep its chunks whole.
+        split_negation_scope=False,
     )
     processed_chunks = text_pipeline.process(text, include_positions=include_positions)
     prompt_texts = _prompt_texts(text, processed_chunks)

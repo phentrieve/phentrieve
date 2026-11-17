@@ -289,3 +289,32 @@ def test_content_span_drops_function_words_at_the_edges() -> None:
     assert _content_span("and the tremor with", 0, 19, leading, trailing) == (8, 14)
     assert _content_span("and with the", 0, 12, leading, trailing) is None
     assert _content_span("since 2", 0, 7, frozenset({"since"}), frozenset()) is None
+
+
+def test_split_can_be_switched_off() -> None:
+    pipeline = TextProcessingPipeline(
+        language="en",
+        chunking_pipeline_config=_CFG,
+        assertion_config=dict(DEFAULT_ASSERTION_CONFIG),
+        split_negation_scope=False,
+    )
+
+    assert _chunks(pipeline, "Seizures since age 2 with no fever.") == [
+        ("Seizures since age 2 with no fever", "negated")
+    ]
+
+
+def test_llm_grounded_chunks_are_not_split() -> None:
+    # The phase-1 prompt decides the negation scope there (#521 review).
+    from phentrieve.llm.preprocessing import build_grounded_chunks_from_text_pipeline
+
+    chunks = build_grounded_chunks_from_text_pipeline(
+        text="Seizures since age 2 with no fever.",
+        language="en",
+        chunking_pipeline_config=_CFG,
+        assertion_config=dict(DEFAULT_ASSERTION_CONFIG),
+        retrieval_model_name="unused",
+        sbert_model_for_semantic_chunking=object(),
+    )
+
+    assert [chunk.text for chunk in chunks] == ["Seizures since age 2 with no fever"]
