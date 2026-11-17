@@ -79,6 +79,17 @@ describe('PhentrieveService', () => {
     expect(axios.post.mock.calls[1][1].language).toBe('de');
   });
 
+  it('asks for chunk positions so the note view can place every chunk', async () => {
+    axios.post.mockResolvedValue({ data: {} });
+
+    await PhentrieveService.processText({
+      text: 'Mikro-\nzephalie.',
+      extractionBackend: 'standard',
+    });
+
+    expect(axios.post.mock.calls[0][1].include_chunk_positions).toBe(true);
+  });
+
   it('sends extraction_backend=llm in text process requests', async () => {
     axios.post.mockResolvedValue({ data: { meta: { extraction_backend: 'llm' } } });
 
