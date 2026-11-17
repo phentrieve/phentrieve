@@ -26,6 +26,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# A hyphen that splits a word across a line break ("Haemo-\nglobin"), as in
+# text pasted from PDFs; it is dropped together with the line break. Shared by
+# the standard text pipeline and the LLM evidence locator.
+LINE_BREAK_HYPHEN = re.compile(r"[-\u2010\u2011\u00ad][^\S\r\n]*[\r\n]\s*")
+SOFT_HYPHEN = "\u00ad"
+
 # Reparse tags that redirect path traversal and must be treated as links.
 # Other reparse points (OneDrive Files-On-Demand cloud placeholders, Windows
 # Data Deduplication stubs, etc.) also set FILE_ATTRIBUTE_REPARSE_POINT but are

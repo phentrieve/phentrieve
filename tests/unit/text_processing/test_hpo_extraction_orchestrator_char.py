@@ -93,8 +93,53 @@ class TestThresholdFiltering:
         )
         # Chunk match survives chunk filter (0.6 >= 0.5)
         assert len(chunk_results[0]["matches"]) == 1
-        # But aggregated is empty because avg_score 0.6 < 0.8
+        # But aggregated is empty because the best match 0.6 < 0.8
         assert aggregated == []
+
+    def test_low_average_with_high_best_match_passes(self):
+        retriever = _make_mock_retriever(
+            [
+                _chroma_batch_entry([("HP:0001250", "Seizure", 0.55)]),
+                _chroma_batch_entry([("HP:0001250", "Seizure", 0.85)]),
+            ]
+        )
+        aggregated, _ = orchestrate_hpo_extraction(
+            text_chunks=["chunk a", "chunk b"],
+            retriever=retriever,
+            chunk_retrieval_threshold=0.5,
+            min_confidence_for_aggregated=0.75,
+        )
+        # avg_score 0.70 is below the threshold, the best match 0.85 is not.
+        assert [t["id"] for t in aggregated] == ["HP:0001250"]
+        term = aggregated[0]
+        assert term["score"] == pytest.approx(0.85)
+        assert term["avg_score"] == pytest.approx(0.70)
+        assert term["confidence"] == pytest.approx(0.70)
+        assert term["top_evidence_chunk_idx"] == 1
+
+    def test_best_match_below_threshold_is_dropped(self):
+        retriever = _make_mock_retriever(
+            [
+                _chroma_batch_entry(
+                    [
+                        ("HP:0001250", "Seizure", 0.74),
+                        ("HP:0001251", "Ataxia", 0.75),
+                    ]
+                ),
+                _chroma_batch_entry([("HP:0001250", "Seizure", 0.6)]),
+            ]
+        )
+        aggregated, chunk_results = orchestrate_hpo_extraction(
+            text_chunks=["chunk a", "chunk b"],
+            retriever=retriever,
+            chunk_retrieval_threshold=0.5,
+            min_confidence_for_aggregated=0.75,
+        )
+        # Chunk-level matches are unaffected by the aggregated threshold.
+        assert sum(len(c["matches"]) for c in chunk_results) == 3
+        # Best match 0.74 < 0.75 is dropped; a best match equal to the
+        # threshold is kept.
+        assert [t["id"] for t in aggregated] == ["HP:0001251"]
 
 
 class TestTopTermPerChunk:
@@ -206,7 +251,7 @@ class TestAssertionStatuses:
 
 
 class TestRankingAndOrdering:
-    def test_results_sorted_by_avg_score_then_count_desc(self):
+    def test_results_sorted_by_avg_score_desc(self):
         retriever = _make_mock_retriever(
             [
                 _chroma_batch_entry(
@@ -224,6 +269,55 @@ class TestRankingAndOrdering:
         )
         assert [t["id"] for t in aggregated] == ["HP:0001250", "HP:0001251"]
         assert [t["rank"] for t in aggregated] == [1, 2]
+
+    def test_equal_avg_score_ranks_higher_best_match_first(self):
+        # Both terms average 0.75 (scores chosen to be exact in binary); the
+        # second one seen has the higher best match and the lower count, so
+        # the best match decides before count.
+        retriever = _make_mock_retriever(
+            [
+                _chroma_batch_entry(
+                    [
+                        ("HP:0001251", "Ataxia", 0.75),
+                        ("HP:0001250", "Seizure", 1.0),
+                    ]
+                ),
+                _chroma_batch_entry(
+                    [
+                        ("HP:0001251", "Ataxia", 0.75),
+                        ("HP:0001250", "Seizure", 0.5),
+                    ]
+                ),
+                _chroma_batch_entry([("HP:0001251", "Ataxia", 0.75)]),
+            ]
+        )
+        aggregated, _ = orchestrate_hpo_extraction(
+            text_chunks=["a", "b", "c"],
+            retriever=retriever,
+            chunk_retrieval_threshold=0.5,
+        )
+        assert [t["avg_score"] for t in aggregated] == pytest.approx([0.75, 0.75])
+        assert [t["count"] for t in aggregated] == [2, 3]
+        assert [t["id"] for t in aggregated] == ["HP:0001250", "HP:0001251"]
+
+    def test_equal_avg_and_best_match_ranks_higher_count_first(self):
+        retriever = _make_mock_retriever(
+            [
+                _chroma_batch_entry(
+                    [
+                        ("HP:0001251", "Ataxia", 0.8),
+                        ("HP:0001250", "Seizure", 0.8),
+                    ]
+                ),
+                _chroma_batch_entry([("HP:0001250", "Seizure", 0.8)]),
+            ]
+        )
+        aggregated, _ = orchestrate_hpo_extraction(
+            text_chunks=["a", "b"],
+            retriever=retriever,
+            chunk_retrieval_threshold=0.5,
+        )
+        assert [t["id"] for t in aggregated] == ["HP:0001250", "HP:0001251"]
 
     def test_equal_rank_keys_preserve_first_seen_order(self):
         retriever = _make_mock_retriever(

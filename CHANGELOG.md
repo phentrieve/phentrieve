@@ -18,6 +18,48 @@ together:
 
 ## [Unreleased]
 
+`PROMPT_BEHAVIOR_VERSION` is `9`: the two LLM candidate and phrase fixes below change
+pipeline results, so earlier LLM benchmark checkpoints do not match.
+
+### Fixed
+
+- **Words hyphenated across a line break are rejoined in the standard pipeline (#519).**
+  Text pasted from PDFs carries split words, and the fragments were chunked as they
+  were. A hyphen at a line end is removed when the next line starts lowercase; soft
+  hyphens are dropped. Chunk positions still refer to the submitted text. Real hyphens
+  stay: before a coordinator ("und", "oder", "and", "or"), after a one-letter or
+  capital-ending fragment, in a fragment that already holds a hyphen, and across a
+  blank line. The LLM backend is unchanged.
+- **Standard extraction no longer returns non-phenotype HPO terms (#468).** Terms
+  outside *Phenotypic abnormality* (clinical modifiers, course, inheritance, frequency)
+  are left out of chunk matches and aggregated terms. A chunk can therefore return
+  fewer terms than `num_results_per_chunk`. Query mode is unchanged.
+- **Region-plus-layer phrases stay whole in phase 1 (#488).** The shared-head split
+  turned a three-word phrase with an anatomical region and a layer into two broader
+  phrases; it now goes to retrieval as one phrase.
+- **Non-phenotypic hits no longer use up candidate slots (#493).** They are removed
+  before the hybrid candidate selection instead of after it, so the selection is
+  filled with phenotype terms.
+
+### Changed
+
+- **`aggregated_term_confidence` is compared with a term's best match (#235).** It was
+  compared with the average over all chunks, so a term found strongly in one chunk and
+  weakly in another could be dropped. Results are a superset of before; the added
+  terms have a `confidence` (still the average) below the threshold and sort after the
+  earlier ones.
+
+## [0.32.0] — 2026-11-16 (CLI 0.32.0 / API 0.22.0 / Frontend 0.22.0)
+
+Fixes found before deploying 0.31: LLM full-text requests no longer time out after 30 s
+(#518), the mapping prompt is back to 10 candidates per phrase (#523), a failed phase-1
+request is not sent again unchanged (#375), the browser PII check stops flagging
+phenotypes and shows its findings as a list, and two dependency advisories are patched.
+
+Behaviour changes: LLM results and token use change with the candidate cap, and
+`PROMPT_BEHAVIOR_VERSION` is `8`, so earlier LLM benchmark checkpoints do not match;
+benchmark scoring counts assertion `normal` as absent (#515).
+
 ### Fixed
 
 - **The browser PII check no longer flags phenotypes and lab values.** Capitalised phrases
@@ -35,6 +77,23 @@ together:
 - **A reloaded note explains why its text is gone.** The note text is not stored in the
   browser; after a reload the history showed "[redacted]" and "1 word". It now shows a
   translated notice and no word count.
+- **LLM full-text requests get a backend-aware timeout (#518).** The request timeout came
+  from the text length alone, so short texts on the LLM backend failed with `504` after
+  30 s. LLM requests now get 180 s (270 s from 5,000 characters); the frontend waits
+  280 s and shows the timeout message for a `504` instead of the generic error.
+- **The mapping prompt carries at most `max_unique_candidates` candidates (#523).** Since
+  the batch-retrieval fix in 0.31.0 a phrase could reach the phase-2 mapping prompt with
+  up to 50 candidates. The prompt is capped at 10 again, by score; retrieval, the
+  ontology guard, local matching and the local fallback still see the full list. A
+  selected ID that was not shown to the model counts as an invalid selection.
+- **An identical phase-1 request is not sent again after invalid output (#375).** At
+  temperature 0 a retry with an unchanged request and budget repeats the failure. It is
+  now skipped for malformed responses as well as truncated ones, and the fallback goes
+  straight to smaller groups. A temperature above 0 and an empty response keep the retry.
+- **dnspython 2.9.2** (CVE-2026-128089) and **opentelemetry-api 1.45.2**
+  (CVE-2026-126360). Both advisories were published after 0.31.0 and failed the
+  dependency scan and the API image scan. The floors are enforced by the dependency
+  policy test.
 
 ### Changed
 

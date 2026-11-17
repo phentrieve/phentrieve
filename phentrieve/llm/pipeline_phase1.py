@@ -15,12 +15,16 @@ UNIT_TOKEN_PATTERN = re.compile(
 # must never be retrieved and mapped to a proband HPO term (which produced a
 # self-contradictory present+negated pair on a single id at the MCP boundary).
 ACTIONABLE_CATEGORIES = frozenset({"abnormal", "normal", "suspected"})
+# Region modifiers that can stand side by side over one head noun and then name
+# two findings ("<region> <region> <head>"). Only regions qualify: a modifier
+# that names a layer or part inside a region ("cortical") restricts the region
+# next to it, so "<region> cortical <head>" is ONE finding and stays whole
+# (#488).
 SHARED_HEAD_MODIFIERS = frozenset(
     {
         "brainstem",
         "cerebellar",
         "cerebral",
-        "cortical",
         "pontine",
     }
 )
@@ -262,7 +266,8 @@ def _split_shared_head_phrase(phrase: str) -> list[str]:
     second = match.group("second")
     head = match.group("head")
     if (
-        first not in SHARED_HEAD_MODIFIERS
+        first == second
+        or first not in SHARED_HEAD_MODIFIERS
         or second not in SHARED_HEAD_MODIFIERS
         or head not in SHARED_HEAD_NOUNS
     ):
