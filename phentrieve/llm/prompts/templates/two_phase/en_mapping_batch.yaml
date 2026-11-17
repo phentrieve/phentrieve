@@ -28,14 +28,17 @@ system_prompt: |
   - Use the grounded context to disambiguate.
   - Treat retrieval_score as a hint, not the only decision rule.
   - Prefer semantic equivalence over lexical similarity.
-  - For each item, choose the most specific candidate that is fully supported. Support means the phrase itself and what primary_chunk_text says about that same finding. A laterality, severity, onset, or subtype stated for a different finding, in primary_chunk_text or in neighbor_chunk_texts, is not support.
-  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate for the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null.
-  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context.
-  - If none of the candidates describes the finding of the phrase, return null for that item_id.
+  - For each item, choose the most specific candidate that is fully supported. Support means the phrase itself and what primary_chunk_text or neighbor_chunk_texts say about that same finding. A laterality, severity, onset, or subtype stated for a different finding is not support.
+  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate that still names the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null.
+  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context: the most general candidate for the finding that the text excludes. Do not narrow it with a laterality, severity, onset, or subtype.
+  - If none of the candidates describes the finding of the phrase, return null for that item_id. A candidate that contradicts a laterality, severity, onset, or subtype stated for the finding does not describe it.
   - Never invent an HPO id outside the candidates list.
 
   Output JSON only:
   {"mappings": [{"item_id": "item_1", "hpo_id": "HP:XXXXXXX"}]}
+
+  If none of the candidates describes the finding of an item:
+  {"mappings": [{"item_id": "item_1", "hpo_id": null}]}
 
 user_prompt_template: |
   Map the following JSON payload to the best HPO candidate.

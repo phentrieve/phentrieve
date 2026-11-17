@@ -128,66 +128,61 @@ def _mapping_rules(system_prompt: str) -> str:
     return system_prompt.split("Rules:", 1)[1].split("Output JSON only:", 1)[0]
 
 
-def test_mapping_prompts_state_term_specificity_rule() -> None:
-    single = loader.get_mapping_prompt("en").system_prompt
-    batch = loader.get_batch_mapping_prompt("en").system_prompt
+def _both_mapping_prompts() -> list[str]:
+    return [
+        loader.get_mapping_prompt("en").system_prompt,
+        loader.get_batch_mapping_prompt("en").system_prompt,
+    ]
 
-    assert "- Choose the most specific candidate that is fully supported." in single
-    assert (
-        "- For each item, choose the most specific candidate that is fully supported."
-        in batch
-    )
-    for system_prompt in (single, batch):
+
+def test_mapping_prompts_state_term_specificity_rule() -> None:
+    for system_prompt in _both_mapping_prompts():
         rules = _mapping_rules(system_prompt)
 
-        assert (
-            "- Do not choose a candidate that adds a laterality, severity, onset, "
-            "or subtype that is not supported"
-        ) in rules
+        assert "most specific candidate that is fully supported" in rules
+        assert "adds a laterality, severity, onset, or subtype" in rules
         assert rules.index("Prefer semantic equivalence") < rules.index(
             "most specific candidate"
         )
 
 
 def test_mapping_prompts_define_what_counts_as_support() -> None:
-    for template in (
-        loader.get_mapping_prompt("en"),
-        loader.get_batch_mapping_prompt("en"),
-    ):
-        rules = _mapping_rules(template.system_prompt)
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
 
-        assert (
-            "Support means the phrase itself and what primary_chunk_text says "
-            "about that same finding."
-        ) in rules
-        assert (
-            "stated for a different finding, in primary_chunk_text or in "
-            "neighbor_chunk_texts, is not support."
-        ) in rules
+        # A phrase's own second chunk arrives as a neighbour chunk, so
+        # neighbours count for the same finding.
+        assert "primary_chunk_text or neighbor_chunk_texts say" in rules
+        assert "stated for a different finding is not support" in rules
 
 
 def test_mapping_prompts_give_specificity_rule_a_fallback_before_null() -> None:
-    for template in (
-        loader.get_mapping_prompt("en"),
-        loader.get_batch_mapping_prompt("en"),
-    ):
-        rules = _mapping_rules(template.system_prompt)
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
 
-        assert (
-            "when a more general candidate for the same finding is listed: "
-            "choose that more general candidate."
-        ) in rules
-        assert (
-            "If every candidate for the finding is more specific than supported, "
-            "choose the one that adds the least unsupported detail instead of "
-            "returning null."
-        ) in rules
-        # One null rule only: "no clear match" would let the model return null
-        # for an over-specific candidate after all.
+        assert "choose that more general candidate" in rules
+        assert "that still names the same finding" in rules
+        assert "least unsupported detail instead of returning null" in rules
+        # One null rule in the whole prompt: a looser "no (clear) match" would
+        # let the model return null for an over-specific candidate after all.
         assert rules.count("return null") == 1
-        assert "clear match" not in rules
-        assert rules.index("instead of returning null") < rules.index(
-            "If none of the candidates describes the finding of the phrase"
+        assert "clear match" not in system_prompt
+        assert "no candidate matches" not in system_prompt.lower()
+        assert system_prompt.count('"hpo_id": null') == 1
+
+
+def test_mapping_prompts_reject_contradicting_candidates() -> None:
+    for system_prompt in _both_mapping_prompts():
+        # "mild X" with only "severe X" listed is null, not the nearest sibling.
+        assert "contradicts a laterality, severity, onset, or subtype" in (
+            _mapping_rules(system_prompt)
+        )
+
+
+def test_mapping_prompts_keep_normal_items_general() -> None:
+    for system_prompt in _both_mapping_prompts():
+        assert "most general candidate for the finding that the text excludes" in (
+            _mapping_rules(system_prompt)
         )
 
 
@@ -195,14 +190,9 @@ def test_mapping_prompts_keep_null_and_candidate_only_rules() -> None:
     single = loader.get_mapping_prompt("en").system_prompt
     batch = loader.get_batch_mapping_prompt("en").system_prompt
 
-    assert (
-        "- If none of the candidates describes the finding of the phrase, return null."
-        in single
-    )
-    assert (
-        "- If none of the candidates describes the finding of the phrase, "
-        "return null for that item_id." in batch
-    )
+    null_rule = "- If none of the candidates describes the finding of the phrase, "
+    assert null_rule + "return null." in single
+    assert null_rule + "return null for that item_id." in batch
     for system_prompt in (single, batch):
         assert "- Never invent an HPO id outside the candidates list." in system_prompt
         assert "- Prefer semantic equivalence over lexical similarity." in system_prompt
