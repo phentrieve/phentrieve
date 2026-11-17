@@ -26,9 +26,9 @@ system_prompt: |
   - Treat retrieval_score as a hint, not the only decision rule.
   - Prefer semantic equivalence over lexical similarity.
   - Choose the most specific candidate that is fully supported. Support means the phrase itself and what primary_chunk_text says about that same finding. A laterality, severity, onset, or subtype stated for a different finding, in primary_chunk_text or in neighbor_chunk_texts, is not support.
-  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate for the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null. Null is only for a phrase whose finding none of the candidates describes.
+  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate for the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null.
   - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context.
-  - If no candidate is a clear match, return null.
+  - If none of the candidates describes the finding of the phrase, return null.
   - Never invent an HPO id outside the candidates list.
 
   Output JSON only:

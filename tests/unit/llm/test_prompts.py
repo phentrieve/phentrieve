@@ -182,11 +182,12 @@ def test_mapping_prompts_give_specificity_rule_a_fallback_before_null() -> None:
             "choose the one that adds the least unsupported detail instead of "
             "returning null."
         ) in rules
-        assert (
-            "Null is only for a phrase whose finding none of the candidates describes."
-        ) in rules
+        # One null rule only: "no clear match" would let the model return null
+        # for an over-specific candidate after all.
+        assert rules.count("return null") == 1
+        assert "clear match" not in rules
         assert rules.index("instead of returning null") < rules.index(
-            "If no candidate is a clear match"
+            "If none of the candidates describes the finding of the phrase"
         )
 
 
@@ -194,8 +195,14 @@ def test_mapping_prompts_keep_null_and_candidate_only_rules() -> None:
     single = loader.get_mapping_prompt("en").system_prompt
     batch = loader.get_batch_mapping_prompt("en").system_prompt
 
-    assert "- If no candidate is a clear match, return null." in single
-    assert "- If no candidate is a clear match, return null for that item_id." in batch
+    assert (
+        "- If none of the candidates describes the finding of the phrase, return null."
+        in single
+    )
+    assert (
+        "- If none of the candidates describes the finding of the phrase, "
+        "return null for that item_id." in batch
+    )
     for system_prompt in (single, batch):
         assert "- Never invent an HPO id outside the candidates list." in system_prompt
         assert "- Prefer semantic equivalence over lexical similarity." in system_prompt
