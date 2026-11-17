@@ -393,6 +393,10 @@ def test_phase1_prompt_treats_rule_out_as_uncertain_and_ruled_out_as_absent() ->
     assert "still to be ruled out is uncertain" in assertion_axis
     assert "has been ruled out is absent, not uncertain" in assertion_axis
     assert '"X was ruled out"' in assertion_axis
+    # A reported result of the work-up wins over the request form.
+    assert "reports the result of that work-up, use the result" in assertion_axis
+    # "nicht ausgeschlossen" must not be read as the absent cue "X ausgeschlossen".
+    assert '"nicht ausgeschlossen"' in assertion_axis
     assert '"X ausgeschlossen"' in assertion_axis
 
 
@@ -406,6 +410,8 @@ def test_phase1_prompt_separates_raw_values_from_interpreted_measurements() -> N
     assert "below the 3rd or above the 97th percentile" in system_prompt
     # A percentile inside the normal range ("above the 10th") is no abnormality.
     assert "above a percentile" not in system_prompt
+    # "decreased from A to B" is a course, not a low value.
+    assert "only describes a change over time" in system_prompt
     # The rule against reading an abnormality into a bare number stays.
     assert "from raw numbers alone" in system_prompt
 
