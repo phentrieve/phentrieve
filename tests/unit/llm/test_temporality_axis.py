@@ -90,8 +90,8 @@ def test_prompt_keeps_non_phenotype_information_out_of_the_patient_categories():
     prompt = " ".join(get_prompt("two_phase", "en").render_system_prompt().split())
 
     assert (
-        "Exception: non-phenotype information (onset, inheritance, age, measurement) "
-        "always gets category Other"
+        "Exception: non-phenotype information (onset, inheritance, age, raw "
+        "measurement value without a stated abnormal interpretation) always gets category Other"
     ) in prompt
 
 
