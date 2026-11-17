@@ -350,6 +350,29 @@ describe('seedAnnotationsFromResponse', () => {
     ]);
   });
 
+  it('highlights an evidence chunk whose hyphenated word was rejoined', () => {
+    const hyphenNote = 'Der Patient zeigt eine Mikro-\nzephalie.';
+    const start = hyphenNote.indexOf('Patient');
+    const end = hyphenNote.length - 1;
+    const r = seedAnnotationsFromResponse({
+      note: hyphenNote,
+      response: {
+        processed_chunks: [
+          {
+            chunk_id: 1,
+            text: 'Patient zeigt eine Mikrozephalie',
+            start_char: start,
+            end_char: end,
+          },
+        ],
+        aggregated_hpo_terms: [
+          { hpo_id: 'HP:0000252', name: 'Microcephaly', top_evidence_chunk_id: 1 },
+        ],
+      },
+    });
+    expect(r[0].spans).toEqual([{ start, end, text: 'Patient zeigt eine Mikro-\nzephalie' }]);
+  });
+
   it('keeps matched-text offsets exact after characters that lowercase to two (#411)', () => {
     const r = seedAnnotationsFromResponse({
       note: 'İİ Patient has seizures.',

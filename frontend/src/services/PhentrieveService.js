@@ -226,6 +226,8 @@ class PhentrieveService {
         textProcessingData.topTermPerChunkForAggregation ??
         null,
       include_details: textProcessingData.include_details ?? textProcessingData.includeDetails,
+      // The note view needs them: a chunk with a rejoined hyphenated word is not verbatim in the note.
+      include_chunk_positions: true,
       adaptive_rechunking:
         textProcessingData.adaptive_rechunking ?? textProcessingData.adaptiveRechunking ?? null,
     };
