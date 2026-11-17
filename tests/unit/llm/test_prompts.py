@@ -124,22 +124,69 @@ def test_mapping_prompts_carry_current_version() -> None:
     assert loader.get_batch_mapping_prompt("en").version == "v4.2.0"
 
 
+def _mapping_rules(system_prompt: str) -> str:
+    return system_prompt.split("Rules:", 1)[1].split("Output JSON only:", 1)[0]
+
+
 def test_mapping_prompts_state_term_specificity_rule() -> None:
     single = loader.get_mapping_prompt("en").system_prompt
     batch = loader.get_batch_mapping_prompt("en").system_prompt
 
-    assert "- Choose the most specific candidate that the phrase" in single
-    assert "- For each item, choose the most specific candidate that the phrase" in (
-        batch
+    assert "- Choose the most specific candidate that is fully supported." in single
+    assert (
+        "- For each item, choose the most specific candidate that is fully supported."
+        in batch
     )
     for system_prompt in (single, batch):
-        rules = system_prompt.split("Rules:", 1)[1].split("Output JSON only:", 1)[0]
+        rules = _mapping_rules(system_prompt)
 
-        assert "most specific candidate that the phrase and its context fully" in rules
-        assert "Do not choose a candidate more specific than the text states" in rules
-        assert "laterality, severity, onset, or a subtype" in rules
+        assert (
+            "- Do not choose a candidate that adds a laterality, severity, onset, "
+            "or subtype that is not supported"
+        ) in rules
         assert rules.index("Prefer semantic equivalence") < rules.index(
             "most specific candidate"
+        )
+
+
+def test_mapping_prompts_define_what_counts_as_support() -> None:
+    for template in (
+        loader.get_mapping_prompt("en"),
+        loader.get_batch_mapping_prompt("en"),
+    ):
+        rules = _mapping_rules(template.system_prompt)
+
+        assert (
+            "Support means the phrase itself and what primary_chunk_text says "
+            "about that same finding."
+        ) in rules
+        assert (
+            "stated for a different finding, in primary_chunk_text or in "
+            "neighbor_chunk_texts, is not support."
+        ) in rules
+
+
+def test_mapping_prompts_give_specificity_rule_a_fallback_before_null() -> None:
+    for template in (
+        loader.get_mapping_prompt("en"),
+        loader.get_batch_mapping_prompt("en"),
+    ):
+        rules = _mapping_rules(template.system_prompt)
+
+        assert (
+            "when a more general candidate for the same finding is listed: "
+            "choose that more general candidate."
+        ) in rules
+        assert (
+            "If every candidate for the finding is more specific than supported, "
+            "choose the one that adds the least unsupported detail instead of "
+            "returning null."
+        ) in rules
+        assert (
+            "Null is only for a phrase whose finding none of the candidates describes."
+        ) in rules
+        assert rules.index("instead of returning null") < rules.index(
+            "If no candidate is a clear match"
         )
 
 
