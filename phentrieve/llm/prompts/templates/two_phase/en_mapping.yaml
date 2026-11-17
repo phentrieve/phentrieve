@@ -1,4 +1,4 @@
-version: "v4.2.0"
+version: "v4.2.1"
 
 system_prompt: |
   You map clinical phenotype phrases to HPO terms.
@@ -26,10 +26,9 @@ system_prompt: |
   - Use the grounded context to disambiguate.
   - Treat retrieval_score as a hint, not the only decision rule.
   - Prefer semantic equivalence over lexical similarity.
-  - Choose the most specific candidate that is fully supported. Support means the phrase itself and what primary_chunk_text or neighbor_chunk_texts say about that same finding. A laterality, severity, onset, or subtype stated for a different finding is not support.
-  - Do not choose a candidate that adds a laterality, severity, onset, or subtype that is not supported when a more general candidate that still names the same finding is listed: choose that more general candidate. If every candidate for the finding is more specific than supported, choose the one that adds the least unsupported detail instead of returning null.
-  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context: the most general candidate for the finding that the text excludes. Do not narrow it with a laterality, severity, onset, or subtype.
-  - If none of the candidates describes the finding of the phrase, return null. A candidate that contradicts a laterality, severity, onset, or subtype stated for the finding does not describe it.
+  - Choose the most specific candidate that the phrase and its chunk texts support. Do not choose a candidate that adds a laterality, severity, onset, or subtype the note does not state.
+  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context.
+  - If none of the candidates describes the finding of the phrase, return null.
   - Never invent an HPO id outside the candidates list.
 
   Output JSON only:

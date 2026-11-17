@@ -21,7 +21,7 @@ def test_get_mapping_prompt_loads_packaged_template() -> None:
     template = loader.get_mapping_prompt("fr")
 
     assert template.language == "fr"
-    assert template.version == "v4.2.0"
+    assert template.version == "v4.2.1"
     assert "You map clinical phenotype phrases to HPO terms." in template.system_prompt
     assert Path(template.source_path).as_posix().endswith("two_phase/en_mapping.yaml")
 
@@ -32,7 +32,7 @@ def test_get_batch_mapping_prompt_uses_shared_english_template_with_requested_la
     template = loader.get_batch_mapping_prompt("de")
 
     assert template.language == "de"
-    assert template.version == "v4.2.0"
+    assert template.version == "v4.2.1"
     assert (
         Path(template.source_path)
         .as_posix()
@@ -106,8 +106,8 @@ def test_packaged_templates_define_no_few_shot_examples() -> None:
 
 
 def test_mapping_prompts_carry_current_version() -> None:
-    assert loader.get_mapping_prompt("en").version == "v4.2.0"
-    assert loader.get_batch_mapping_prompt("en").version == "v4.2.0"
+    assert loader.get_mapping_prompt("en").version == "v4.2.1"
+    assert loader.get_batch_mapping_prompt("en").version == "v4.2.1"
 
 
 def _mapping_rules(system_prompt: str) -> str:
@@ -125,51 +125,29 @@ def test_mapping_prompts_state_term_specificity_rule() -> None:
     for system_prompt in _both_mapping_prompts():
         rules = _mapping_rules(system_prompt)
 
-        assert "most specific candidate that is fully supported" in rules
-        assert "adds a laterality, severity, onset, or subtype" in rules
+        assert (
+            "most specific candidate that the phrase and its chunk texts support"
+            in (rules)
+        )
+        assert "subtype the note does not state" in rules
         assert rules.index("Prefer semantic equivalence") < rules.index(
             "most specific candidate"
         )
 
 
-def test_mapping_prompts_define_what_counts_as_support() -> None:
+def test_mapping_prompts_never_force_a_pick() -> None:
+    # No rule may tell the model to choose an over-specific candidate instead
+    # of null: the result has to be supported by the note.
     for system_prompt in _both_mapping_prompts():
         rules = _mapping_rules(system_prompt)
 
-        # A phrase's own second chunk arrives as a neighbour chunk, so
-        # neighbours count for the same finding.
-        assert "primary_chunk_text or neighbor_chunk_texts say" in rules
-        assert "stated for a different finding is not support" in rules
-
-
-def test_mapping_prompts_give_specificity_rule_a_fallback_before_null() -> None:
-    for system_prompt in _both_mapping_prompts():
-        rules = _mapping_rules(system_prompt)
-
-        assert "choose that more general candidate" in rules
-        assert "that still names the same finding" in rules
-        assert "least unsupported detail instead of returning null" in rules
-        # One null rule in the whole prompt: a looser "no (clear) match" would
-        # let the model return null for an over-specific candidate after all.
         assert rules.count("return null") == 1
+        assert "instead of returning null" not in rules
+        assert "least unsupported" not in rules
+        # One null wording in the whole prompt; "clear match" was vague enough
+        # for the model to drop a finding whose term was listed.
         assert "clear match" not in system_prompt
         assert "no candidate matches" not in system_prompt.lower()
-        assert system_prompt.count('"hpo_id": null') == 1
-
-
-def test_mapping_prompts_reject_contradicting_candidates() -> None:
-    for system_prompt in _both_mapping_prompts():
-        # "mild X" with only "severe X" listed is null, not the nearest sibling.
-        assert "contradicts a laterality, severity, onset, or subtype" in (
-            _mapping_rules(system_prompt)
-        )
-
-
-def test_mapping_prompts_keep_normal_items_general() -> None:
-    for system_prompt in _both_mapping_prompts():
-        assert "most general candidate for the finding that the text excludes" in (
-            _mapping_rules(system_prompt)
-        )
 
 
 def test_mapping_prompts_keep_null_and_candidate_only_rules() -> None:
