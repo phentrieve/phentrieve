@@ -403,7 +403,9 @@ def test_phase1_prompt_separates_raw_values_from_interpreted_measurements() -> N
         "A measurement whose abnormal interpretation is stated in the note itself"
         in system_prompt
     )
-    assert "below or above a percentile" in system_prompt
+    assert "below the 3rd or above the 97th percentile" in system_prompt
+    # A percentile inside the normal range ("above the 10th") is no abnormality.
+    assert "above a percentile" not in system_prompt
     # The rule against reading an abnormality into a bare number stays.
     assert "from raw numbers alone" in system_prompt
 
