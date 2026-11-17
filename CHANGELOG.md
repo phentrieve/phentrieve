@@ -18,10 +18,19 @@ together:
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-11-17 (CLI 0.33.0 / API 0.23.0 / Frontend 0.23.0)
+
 `PROMPT_BEHAVIOR_VERSION` is `10`: the LLM prompt, payload, candidate and phrase changes
 below change pipeline results, so earlier LLM benchmark checkpoints do not match.
+Standard extraction results change as well (#519, #468, #235), so earlier standard
+extraction benchmark results do not match either.
 
 ### Fixed
+
+- **The note view highlights chunks with a rejoined word (#551).** After #519 the chunk
+  text of a word split across a line break is no longer verbatim in the note, so its
+  findings were listed but not highlighted. The frontend now requests chunk positions
+  (`include_chunk_positions`) and places such chunks over the original text.
 
 - **Words hyphenated across a line break are rejoined in the standard pipeline (#519).**
   Text pasted from PDFs carries split words, and the fragments were chunked as they
