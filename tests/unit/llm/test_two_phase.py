@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from phentrieve.llm.pipeline import TwoPhaseLLMPipeline, prepare_retrieval_queries
 from phentrieve.llm.pipeline_phase1 import expand_combined_phase1_extractions
 from phentrieve.llm.prompts.loader import get_mapping_prompt, get_prompt
@@ -206,6 +208,67 @@ def test_expand_combined_phase1_extractions_splits_shared_head_mentions():
     assert phrases == ["pontine hypoplasia", "cerebellar hypoplasia"]
     assert all(item["category"] == "abnormal" for item in expanded)
     assert expanded[0]["chunk_ids"] == [44, 45]
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        (
+            "brainstem cerebellar atrophy",
+            ["brainstem atrophy", "cerebellar atrophy"],
+        ),
+        (
+            "cerebral cerebellar malformation",
+            ["cerebral malformation", "cerebellar malformation"],
+        ),
+    ],
+)
+def test_expand_combined_phase1_extractions_splits_two_regions_over_one_head(
+    phrase, expected
+):
+    item = {
+        "phrase": phrase,
+        "category": "abnormal",
+        "chunk_ids": [7],
+        "evidence_text": phrase,
+        "start_char": 3,
+        "end_char": 3 + len(phrase),
+    }
+
+    expanded = expand_combined_phase1_extractions([item])
+
+    assert [split["phrase"] for split in expanded] == expected
+    # The quote stays verbatim; the offsets are re-resolved from it later.
+    assert all(split["evidence_text"] == phrase for split in expanded)
+    assert all(split["start_char"] is None for split in expanded)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # "cortical" names a layer of the region beside it: one finding (#488).
+        "cerebellar cortical atrophy",
+        "cerebral cortical atrophy",
+        "cortical cerebellar atrophy",
+        "cerebral cortical dysplasia",
+        "Cerebral-cortical malformation",
+        # A repeated modifier is not two regions.
+        "cerebellar cerebellar atrophy",
+    ],
+)
+def test_expand_combined_phase1_extractions_keeps_single_concepts_whole(phrase):
+    original = [
+        {
+            "phrase": phrase,
+            "category": "abnormal",
+            "chunk_ids": [7],
+            "evidence_text": phrase,
+            "start_char": 3,
+            "end_char": 3 + len(phrase),
+        }
+    ]
+
+    assert expand_combined_phase1_extractions(original) == original
 
 
 def test_expand_combined_phase1_extractions_expands_common_phenotype_abbreviations():

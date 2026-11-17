@@ -121,7 +121,10 @@ class TextProcessingRequest(BaseModel):
         default=DEFAULT_MIN_CONFIDENCE_AGGREGATED,
         ge=0.0,
         le=1.0,
-        description="Minimum confidence score for an aggregated HPO term.",
+        description=(
+            "Minimum score that the best match of an aggregated HPO term must "
+            "reach for the term to be returned."
+        ),
         json_schema_extra={"example": 0.75},
     )
     top_term_per_chunk_for_aggregation: bool | None = Field(

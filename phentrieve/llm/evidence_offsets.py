@@ -16,6 +16,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from phentrieve.utils import LINE_BREAK_HYPHEN as _LINE_BREAK_HYPHEN
+from phentrieve.utils import SOFT_HYPHEN as _SOFT_HYPHEN
+
 OffsetBasis = Literal[
     "evidence_in_chunk", "evidence_in_chunk_hull", "chunk_span", "unresolved"
 ]
@@ -40,10 +43,6 @@ _TYPOGRAPHY = str.maketrans(
 )
 
 
-# A hyphen that splits a word across a line break ("Hämo-\nglobin"), as in
-# text pasted from PDFs; it is dropped together with the line break.
-_LINE_BREAK_HYPHEN = re.compile(r"[-\u2010\u2011\u00ad][^\S\r\n]*[\r\n]\s*")
-_SOFT_HYPHEN = "\u00ad"
 _QUOTED_LINE_BREAK_HYPHEN = re.compile(r"(?<=\w)- (?=\w)")
 
 # Separators the phase-1 chunk index shows after the chunk they follow.

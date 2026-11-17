@@ -67,7 +67,7 @@ Each profile supports these keys (all optional):
 | `language` | string | ISO 639-1 code (e.g. `"de"`). |
 | `model_name` | string | Embedding model. |
 | `chunk_retrieval_threshold` | float | Per-chunk similarity threshold. |
-| `aggregated_term_confidence` | float | Min confidence for aggregated terms. |
+| `aggregated_term_confidence` | float | Minimum score that the best match of an aggregated term must reach. See [Filtering Options](text-processing-guide.md#filtering-options). |
 | `num_results` | int | Number of results to return. |
 | `similarity_threshold` | float | Query-mode similarity threshold. |
 | `chunking_strategy` | string | E.g. `"semantic"`, `"sliding_window_punct_conj_cleaned"`. |

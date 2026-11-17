@@ -25,8 +25,10 @@ from phentrieve.text_processing.chunkers import (
     TextChunker,
 )
 from phentrieve.text_processing.cleaners import (
+    RejoinedText,
     clean_internal_newlines_and_extra_spaces,
     normalize_line_endings,
+    rejoin_line_break_hyphens,
 )
 from phentrieve.text_processing.resource_loader import load_language_resource
 from phentrieve.text_processing.spans import find_span_in_text
@@ -403,6 +405,7 @@ class TextProcessingPipeline:
         chunking_pipeline_config: list[dict],
         assertion_config: dict,
         sbert_model_for_semantic_chunking: SentenceTransformer | None = None,
+        rejoin_line_break_hyphens: bool = True,
     ):
         """
         Initialize the text processing pipeline.
@@ -424,11 +427,15 @@ class TextProcessingPipeline:
                 }
             sbert_model_for_semantic_chunking: Pre-loaded SentenceTransformer model
                 for semantic chunking (required if 'semantic' type is in the pipeline)
+            rejoin_line_break_hyphens: Rejoin words split by a hyphen at a line
+                break ("Entwick-\nlung") before chunking. Reported positions
+                still index the text passed to ``process``.
         """
         self.language = language
         self.chunking_pipeline_config = chunking_pipeline_config
         self.assertion_config = assertion_config
         self.sbert_model = sbert_model_for_semantic_chunking
+        self.rejoin_line_break_hyphens = rejoin_line_break_hyphens
 
         # Create chunkers list
         self.chunkers = self._create_chunkers()
@@ -595,10 +602,17 @@ class TextProcessingPipeline:
             )
             return []
 
-        # Store original text for position tracking (BEFORE any normalization)
-        original_text = raw_text
+        # Words split by a hyphen at a line break are rejoined before chunking
+        # (#519). Chunks are located in this text (BEFORE any other
+        # normalization); reported positions are mapped back to raw_text.
+        rejoined = (
+            rejoin_line_break_hyphens(raw_text)
+            if self.rejoin_line_break_hyphens
+            else RejoinedText(raw_text)
+        )
+        document_text = rejoined.text
 
-        normalized_text = normalize_line_endings(raw_text)
+        normalized_text = normalize_line_endings(document_text)
         current_segments_for_stage: list[str] = [normalized_text]
 
         # Simplified source tracking for this refactor:
@@ -671,17 +685,17 @@ class TextProcessingPipeline:
             # cleaner strips leading negation cues ("no", "does not have") from the
             # chunk text, so detecting on the cleaned chunk alone loses polarity
             # (the C1 false-positive class). The span lets us recover the cue from
-            # original_text without changing the retrieval/display chunk text.
+            # document_text without changing the retrieval/display chunk text.
             start_char, end_char = -1, -1
             assertion_context_start = search_start
-            span = find_span_in_text(final_text_chunk, original_text, search_start)
+            span = find_span_in_text(final_text_chunk, document_text, search_start)
             if span:
                 start_char, end_char = span.start_char, span.end_char
                 # Restore the within-sentence context that precedes this chunk
                 # (where a stripped leading cue lives), bounded by the previous
                 # chunk (search_start) and the current sentence so a following
                 # concept's cue is not pulled into this chunk's scope.
-                gap = original_text[search_start:start_char]
+                gap = document_text[search_start:start_char]
                 last_terminator = max(
                     (gap.rfind(t) for t in _SENTENCE_BREAKS),
                     default=-1,
@@ -701,7 +715,7 @@ class TextProcessingPipeline:
             # back to the cleaned chunk when the span could not be located.
             assertion_input = cleaned_final_chunk
             if span and end_char > assertion_context_start:
-                context_text = original_text[assertion_context_start:end_char].strip()
+                context_text = document_text[assertion_context_start:end_char].strip()
                 if context_text:
                     assertion_input = context_text
 
@@ -726,13 +740,15 @@ class TextProcessingPipeline:
 
             # Only include positions when requested (backward compatibility)
             if include_positions:
-                chunk_data["start_char"] = start_char
-                chunk_data["end_char"] = end_char
+                chunk_data["start_char"] = (
+                    rejoined.original_start(start_char) if span else -1
+                )
+                chunk_data["end_char"] = rejoined.original_end(end_char) if span else -1
 
             processed_chunks_with_assertion.append(chunk_data)
 
         assertion_results = self.assertion_detector.detect_batch(assertion_inputs)
-        pseudo_spans = pseudo_cue_spans(original_text, self.language)
+        pseudo_spans = pseudo_cue_spans(document_text, self.language)
         for chunk_data, chunk_span, (assertion_status, assertion_details) in zip(
             processed_chunks_with_assertion,
             chunk_document_spans,
@@ -748,7 +764,7 @@ class TextProcessingPipeline:
             chunk_data["assertion_details"] = assertion_details
 
         if not self.assertion_config.get("disable", False):
-            context = _SentenceContext(original_text, self.language, pseudo_spans)
+            context = _SentenceContext(document_text, self.language, pseudo_spans)
             self._split_at_negation_scope(
                 context,
                 processed_chunks_with_assertion,

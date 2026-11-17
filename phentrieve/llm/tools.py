@@ -299,6 +299,7 @@ class ToolExecutor:
                 chunking_pipeline_config=get_sliding_window_punct_conj_cleaned_config(),
                 assertion_config={"disable": False},
                 sbert_model_for_semantic_chunking=self._cached_embedding_model,
+                rejoin_line_break_hyphens=False,
             )
 
         if self._cached_retriever is None:
