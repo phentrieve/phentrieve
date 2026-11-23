@@ -575,5 +575,57 @@
       "missingToken": "This reset link is missing its token.",
       "failed": "This reset link is invalid or has expired."
     }
+  },
+  "diseaseRanking": {
+    "open": "Similar diseases",
+    "title": "Similar diseases",
+    "subtitle": "Phenotype similarity to the collected profile · raw, uncalibrated",
+    "close": "Close similar diseases",
+    "notice": {
+      "title": "Research use only, not a diagnosis.",
+      "body": "The list shows how well the profile matches curated disease annotations. It is not a probability and does not replace clinical assessment."
+    },
+    "levelLabel": "Rank by",
+    "level": {
+      "disease": "Diseases",
+      "gene": "Genes"
+    },
+    "includeUncertain": "Include uncertain terms ({count})",
+    "status": {
+      "scored": "Scored: {count} term(s)",
+      "excluded": "{count} excluded · counts only as a conflict",
+      "notScored": "{count} not scored",
+      "auto": "Updates automatically"
+    },
+    "loading": "Ranking diseases",
+    "empty": "Collect at least one present phenotype to see similar diseases.",
+    "conflictChip": "{count} conflict(s)",
+    "scoreLabel": "Score {score}",
+    "why": "Why this match",
+    "table": {
+      "profile": "Profile term",
+      "disease": "Matches disease term",
+      "frequency": "Frequency"
+    },
+    "relation": {
+      "exact": "same",
+      "broader": "broader term",
+      "narrower": "more specific",
+      "related": "related"
+    },
+    "conflict": "Conflict: {profile} is excluded in the profile, but the disease is annotated with {disease}. This does not change the score.",
+    "unexplained": "Not explained:",
+    "sources": "Annotations:",
+    "bestDisease": "best disease: {label}",
+    "genes": "Gene {genes}",
+    "errors": {
+      "unavailable": "The disease index is not available on this server.",
+      "disabled": "Disease ranking is not enabled on this server.",
+      "generic": "The ranking could not be computed. Please try again."
+    },
+    "footer": {
+      "summary": "Top {shown} of {total} · HPO {hpo} · MONDO {mondo}",
+      "attribution": "Sources: Human Phenotype Ontology · Orphanet (CC BY 4.0, modified: merged with OMIM annotations) · MONDO (CC BY 4.0) · OMIM"
+    }
   }
 }

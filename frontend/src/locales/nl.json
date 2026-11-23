@@ -575,5 +575,57 @@
       "missingToken": "Aan deze resetlink ontbreekt het token.",
       "failed": "Deze resetlink is ongeldig of verlopen."
     }
+  },
+  "diseaseRanking": {
+    "open": "Vergelijkbare aandoeningen",
+    "title": "Vergelijkbare aandoeningen",
+    "subtitle": "Fenotypische gelijkenis met het verzamelde profiel · ruw, niet gekalibreerd",
+    "close": "Vergelijkbare aandoeningen sluiten",
+    "notice": {
+      "title": "Alleen voor onderzoek, geen diagnose.",
+      "body": "De lijst toont hoe goed het profiel overeenkomt met gecureerde ziekteannotaties. Het is geen waarschijnlijkheid en vervangt geen klinische beoordeling."
+    },
+    "levelLabel": "Rangschikken op",
+    "level": {
+      "disease": "Aandoeningen",
+      "gene": "Genen"
+    },
+    "includeUncertain": "Onzekere termen meenemen ({count})",
+    "status": {
+      "scored": "Beoordeeld: {count} term(en)",
+      "excluded": "{count} uitgesloten · telt alleen als conflict",
+      "notScored": "{count} niet beoordeeld",
+      "auto": "Wordt automatisch bijgewerkt"
+    },
+    "loading": "Aandoeningen worden gerangschikt",
+    "empty": "Verzamel ten minste één aanwezig fenotype om vergelijkbare aandoeningen te zien.",
+    "conflictChip": "{count} conflict(en)",
+    "scoreLabel": "Score {score}",
+    "why": "Waarom deze overeenkomst",
+    "table": {
+      "profile": "Profielterm",
+      "disease": "Komt overeen met ziekteterm",
+      "frequency": "Frequentie"
+    },
+    "relation": {
+      "exact": "gelijk",
+      "broader": "bredere term",
+      "narrower": "specifieker",
+      "related": "verwant"
+    },
+    "conflict": "Conflict: {profile} is in het profiel uitgesloten, maar de aandoening is geannoteerd met {disease}. Dit verandert de score niet.",
+    "unexplained": "Niet verklaard:",
+    "sources": "Annotaties:",
+    "bestDisease": "beste aandoening: {label}",
+    "genes": "Gen {genes}",
+    "errors": {
+      "unavailable": "De ziekte-index is op deze server niet beschikbaar.",
+      "disabled": "Rangschikking van aandoeningen is op deze server niet ingeschakeld.",
+      "generic": "De rangschikking kon niet worden berekend. Probeer het opnieuw."
+    },
+    "footer": {
+      "summary": "Top {shown} van {total} · HPO {hpo} · MONDO {mondo}",
+      "attribution": "Bronnen: Human Phenotype Ontology · Orphanet (CC BY 4.0, gewijzigd: samengevoegd met OMIM-annotaties) · MONDO (CC BY 4.0) · OMIM"
+    }
   }
 }

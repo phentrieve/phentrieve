@@ -575,5 +575,57 @@
       "missingToken": "A este enlace de restablecimiento le falta el token.",
       "failed": "Este enlace de restablecimiento no es válido o ha caducado."
     }
+  },
+  "diseaseRanking": {
+    "open": "Enfermedades similares",
+    "title": "Enfermedades similares",
+    "subtitle": "Similitud fenotípica con el perfil recopilado · bruta, sin calibrar",
+    "close": "Cerrar enfermedades similares",
+    "notice": {
+      "title": "Solo para investigación, no es un diagnóstico.",
+      "body": "La lista muestra en qué medida el perfil coincide con las anotaciones de enfermedades curadas. No es una probabilidad ni sustituye la valoración clínica."
+    },
+    "levelLabel": "Clasificar por",
+    "level": {
+      "disease": "Enfermedades",
+      "gene": "Genes"
+    },
+    "includeUncertain": "Incluir términos inciertos ({count})",
+    "status": {
+      "scored": "Evaluados: {count} término(s)",
+      "excluded": "{count} excluido(s) · solo cuenta como conflicto",
+      "notScored": "{count} sin evaluar",
+      "auto": "Se actualiza automáticamente"
+    },
+    "loading": "Clasificando enfermedades",
+    "empty": "Recopile al menos un fenotipo presente para ver enfermedades similares.",
+    "conflictChip": "{count} conflicto(s)",
+    "scoreLabel": "Puntuación {score}",
+    "why": "Por qué esta coincidencia",
+    "table": {
+      "profile": "Término del perfil",
+      "disease": "Coincide con el término de la enfermedad",
+      "frequency": "Frecuencia"
+    },
+    "relation": {
+      "exact": "igual",
+      "broader": "término más general",
+      "narrower": "más específico",
+      "related": "relacionado"
+    },
+    "conflict": "Conflicto: {profile} está excluido en el perfil, pero la enfermedad está anotada con {disease}. No cambia la puntuación.",
+    "unexplained": "No explicado:",
+    "sources": "Anotaciones:",
+    "bestDisease": "mejor enfermedad: {label}",
+    "genes": "Gen {genes}",
+    "errors": {
+      "unavailable": "El índice de enfermedades no está disponible en este servidor.",
+      "disabled": "La clasificación de enfermedades no está activada en este servidor.",
+      "generic": "No se pudo calcular la clasificación. Inténtelo de nuevo."
+    },
+    "footer": {
+      "summary": "Top {shown} de {total} · HPO {hpo} · MONDO {mondo}",
+      "attribution": "Fuentes: Human Phenotype Ontology · Orphanet (CC BY 4.0, modificado: combinado con anotaciones de OMIM) · MONDO (CC BY 4.0) · OMIM"
+    }
   }
 }

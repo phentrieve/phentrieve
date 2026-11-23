@@ -244,6 +244,18 @@
         <v-divider />
         <div class="pa-3">
           <v-btn
+            v-if="rankingAvailable"
+            block
+            color="secondary"
+            class="mb-2"
+            prepend-icon="mdi-database-search-outline"
+            :disabled="presentIds.length === 0"
+            data-testid="collection-rank-diseases"
+            @click="openRanking"
+          >
+            {{ $t('diseaseRanking.open') }}
+          </v-btn>
+          <v-btn
             block
             color="primary"
             class="mb-2"
@@ -299,6 +311,7 @@
         </div>
       </template>
     </v-navigation-drawer>
+    <DiseaseRankingPanel v-if="rankingAvailable" :phenotypes="phenotypes" />
   </div>
 </template>
 
@@ -307,8 +320,13 @@
  * PhenotypeCollectionPanel - Case workspace drawer holding the collected HPO terms.
  * Extracted from QueryInterface.vue to reduce component complexity.
  */
+import { getActivePinia } from 'pinia';
+import DiseaseRankingPanel from './DiseaseRankingPanel.vue';
+import { useDiseaseRankingStore } from '../stores/diseaseRanking';
+
 export default {
   name: 'PhenotypeCollectionPanel',
+  components: { DiseaseRankingPanel },
   props: {
     phenotypes: { type: Array, default: () => [] },
     panelOpen: { type: Boolean, default: false },
@@ -329,10 +347,17 @@ export default {
     'update:sex',
     'update:dateOfBirth',
   ],
+  setup() {
+    // Disease ranking is optional (server flag); without an active Pinia it stays hidden.
+    return { rankingStore: getActivePinia() ? useDiseaseRankingStore() : null };
+  },
   data() {
     return { confirmingClear: false, copiedCount: 0 };
   },
   computed: {
+    rankingAvailable() {
+      return Boolean(this.rankingStore?.available);
+    },
     // Excluded terms are left out: a bare ID list is read as "present" by tools like Exomiser
     presentIds() {
       return this.phenotypes
@@ -340,7 +365,19 @@ export default {
         .map((p) => p.hpo_id);
     },
   },
+  watch: {
+    // Ask the server about disease ranking only once the workspace is opened
+    panelOpen: {
+      immediate: true,
+      handler(open) {
+        if (open) this.rankingStore?.checkAvailability();
+      },
+    },
+  },
   methods: {
+    openRanking() {
+      this.rankingStore?.open(this.phenotypes);
+    },
     // Two-step clear: the first click arms, a second click within 4s clears
     onClear() {
       clearTimeout(this.clearTimer);

@@ -575,5 +575,57 @@
       "missingToken": "Diesem Link zum Zurücksetzen fehlt der Token.",
       "failed": "Dieser Link zum Zurücksetzen ist ungültig oder abgelaufen."
     }
+  },
+  "diseaseRanking": {
+    "open": "Ähnliche Erkrankungen",
+    "title": "Ähnliche Erkrankungen",
+    "subtitle": "Phänotyp-Ähnlichkeit zum gesammelten Profil · roh, nicht kalibriert",
+    "close": "Ähnliche Erkrankungen schließen",
+    "notice": {
+      "title": "Nur für Forschungszwecke, keine Diagnose.",
+      "body": "Die Liste zeigt, wie gut das Profil zu hinterlegten Krankheitsannotationen passt. Sie ist keine Wahrscheinlichkeit und ersetzt keine klinische Beurteilung."
+    },
+    "levelLabel": "Ranken nach",
+    "level": {
+      "disease": "Erkrankungen",
+      "gene": "Gene"
+    },
+    "includeUncertain": "Unsichere Terme einbeziehen ({count})",
+    "status": {
+      "scored": "Bewertet: {count} Term(e)",
+      "excluded": "{count} ausgeschlossen · zählt nur als Konflikt",
+      "notScored": "{count} nicht bewertet",
+      "auto": "Aktualisiert automatisch"
+    },
+    "loading": "Erkrankungen werden gerankt",
+    "empty": "Sammeln Sie mindestens einen vorhandenen Phänotyp, um ähnliche Erkrankungen zu sehen.",
+    "conflictChip": "{count} Konflikt(e)",
+    "scoreLabel": "Score {score}",
+    "why": "Warum diese Erkrankung",
+    "table": {
+      "profile": "Profil-Term",
+      "disease": "passt zu Krankheits-Term",
+      "frequency": "Häufigkeit"
+    },
+    "relation": {
+      "exact": "gleich",
+      "broader": "Oberbegriff",
+      "narrower": "spezifischer",
+      "related": "verwandt"
+    },
+    "conflict": "Konflikt: {profile} ist im Profil ausgeschlossen, die Erkrankung ist aber mit {disease} annotiert. Ändert den Score nicht.",
+    "unexplained": "Nicht erklärt:",
+    "sources": "Annotationen:",
+    "bestDisease": "beste Erkrankung: {label}",
+    "genes": "Gen {genes}",
+    "errors": {
+      "unavailable": "Der Krankheitsindex ist auf diesem Server nicht verfügbar.",
+      "disabled": "Das Ranking von Erkrankungen ist auf diesem Server nicht aktiviert.",
+      "generic": "Das Ranking konnte nicht berechnet werden. Bitte versuchen Sie es erneut."
+    },
+    "footer": {
+      "summary": "Top {shown} von {total} · HPO {hpo} · MONDO {mondo}",
+      "attribution": "Quellen: Human Phenotype Ontology · Orphanet (CC BY 4.0, verändert: mit OMIM-Annotationen zusammengeführt) · MONDO (CC BY 4.0) · OMIM"
+    }
   }
 }
