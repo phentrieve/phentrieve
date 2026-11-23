@@ -250,16 +250,22 @@ verify_data() {
 # Pin the inputs with PHENTRIEVE_DISEASE_HPO_VERSION / PHENTRIEVE_DISEASE_MONDO_VERSION.
 prepare_disease_index() {
     local run_as=("$@")
-    if [ "${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}" != "true" ]; then
-        return 0
-    fi
+    # Same truthy values as _env_bool in api/config.py (1/true/yes/on, any case)
+    case "$(printf '%s' "${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+        1|true|yes|on) ;;
+        *) return 0 ;;
+    esac
     if [ -n "${PHENTRIEVE_DISEASE_INDEX_DIR:-}" ]; then
         log_info "Disease ranking uses PHENTRIEVE_DISEASE_INDEX_DIR - skipping index build"
         return 0
     fi
     # With pinned versions the CLI compares them with the existing index and rebuilds
     # on a mismatch; without pins an existing index is kept.
+    # Both files must exist; the CLI also verifies the checksum and rebuilds a
+    # damaged index, so any doubt is left to it.
     if [ -f "$DATA_DIR/disease_index/disease_index.npz" ] \
+        && [ -f "$DATA_DIR/disease_index/disease_index.json" ] \
+        && [ -f "$DATA_DIR/disease_index/disease_index.info.json" ] \
         && [ -z "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ] \
         && [ -z "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
         log_info "Disease index found: $DATA_DIR/disease_index"

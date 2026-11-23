@@ -116,3 +116,41 @@ def test_rebuilds_when_requested_versions_differ(tmp_path: Path, mocker) -> None
     )
     fetch.assert_called_once()
     assert load_index(tmp_path / "disease_index").meta["hpo_version"] == "v2026-10-01"
+
+
+def test_rebuilds_a_damaged_index_without_force(tmp_path: Path, mocker) -> None:
+    from phentrieve.disease_matching.index import INDEX_ARRAYS_FILENAME
+
+    mocker.patch("phentrieve.utils.setup_logging_cli")
+    mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    _run(tmp_path)
+    arrays = tmp_path / "disease_index" / INDEX_ARRAYS_FILENAME
+    arrays.write_bytes(arrays.read_bytes() + b"x")
+    fetch = mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    _run(tmp_path)
+    fetch.assert_called_once()
+
+
+def test_latest_is_not_a_version_pin(tmp_path: Path, mocker) -> None:
+    mocker.patch("phentrieve.utils.setup_logging_cli")
+    mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    _run(tmp_path)
+    fetch = mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    from phentrieve.cli.data_commands import prepare_disease_index
+
+    prepare_disease_index(
+        data_dir=str(tmp_path), hpo_version="latest", mondo_version="LATEST"
+    )
+    fetch.assert_not_called()

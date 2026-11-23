@@ -53,8 +53,9 @@ results. Further options:
 
 - `--data-dir` picks another data directory.
 - `--force` downloads the sources again and rebuilds the index.
-- An existing index is kept unless `--force` is given or the requested HPO or MONDO
-  version differs from the one it was built from. Restart the API after a rebuild.
+- An existing index is kept unless `--force` is given, the requested HPO or MONDO
+  version differs from the one it was built from (`latest` is not a pin), or the index
+  is incomplete or damaged. A running API picks up a rebuilt index on the next request.
 - `--no-orpha-merge` builds the plain reference index, without the ORPHA merge.
 
 ## Enable it

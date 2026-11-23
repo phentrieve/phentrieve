@@ -74,12 +74,13 @@ def score(index: DiseaseIndex, weights: dict[int, float]) -> ScoredProfile | Non
     reverse = sim.max(axis=1) * inv_ic
     n = index.n_diseases
     nonempty = np.diff(index.dis_ptr) > 0
+    # One lane at a time: an (annotations x lanes) temporary would cost hundreds of MB.
     lane_max = np.zeros((n, k))
-    lane_max[nonempty] = np.maximum.reduceat(
-        sim[index.ann_term] * index.ann_factor[:, None],
-        index.dis_ptr[:-1][nonempty],
-        axis=0,
-    )
+    starts_nonempty = index.dis_ptr[:-1][nonempty]
+    for lane in range(k):
+        lane_max[nonempty, lane] = np.maximum.reduceat(
+            sim[index.ann_term, lane] * index.ann_factor, starts_nonempty
+        )
     rev = np.bincount(index.ann_dis, index.ann_f * reverse[index.ann_term], n)
     fwd = lane_max @ lane_w
     scores = GAMMA * fwd + (1 - GAMMA) * rev / (F0 + index.freq_sum)

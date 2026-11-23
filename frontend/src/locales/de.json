@@ -595,7 +595,8 @@
       "scored": "Bewertet: {count} Term(e)",
       "excluded": "{count} ausgeschlossen · zählt nur als Konflikt",
       "notScored": "{count} nicht bewertet",
-      "auto": "Aktualisiert automatisch"
+      "auto": "Aktualisiert automatisch",
+      "dropped": "{count} Term(e) nicht gesendet (Grenze {max})"
     },
     "loading": "Erkrankungen werden gerankt",
     "empty": "Sammeln Sie mindestens einen vorhandenen Phänotyp, um ähnliche Erkrankungen zu sehen.",

@@ -87,6 +87,9 @@
           {{ t('diseaseRanking.status.notScored', { count: result.not_scored.length }) }}
         </span>
       </template>
+      <span v-if="store.droppedTerms" class="text-warning" data-testid="disease-ranking-dropped">
+        {{ t('diseaseRanking.status.dropped', { count: store.droppedTerms, max: maxTerms }) }}
+      </span>
       <span>{{ t('diseaseRanking.status.auto') }}</span>
     </div>
     <v-progress-linear
@@ -252,7 +255,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useDisplay } from 'vuetify';
-import { useDiseaseRankingStore } from '../stores/diseaseRanking';
+import { useDiseaseRankingStore, MAX_PROFILE_TERMS } from '../stores/diseaseRanking';
 
 const props = defineProps({
   phenotypes: { type: Array, default: () => [] },
@@ -266,6 +269,7 @@ const drawerWidth = computed(() => (display.mdAndUp.value ? 560 : display.width.
 const drawerZIndex = computed(() => (display.mdAndUp.value ? 1490 : 1510));
 const store = useDiseaseRankingStore();
 const openRow = ref(null);
+const maxTerms = MAX_PROFILE_TERMS;
 
 const result = computed(() => store.result);
 

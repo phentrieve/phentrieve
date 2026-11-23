@@ -17,6 +17,34 @@ import { isExcluded, isUncertain } from '../composables/usePhenotypeCollection';
 
 export const RANK_DEBOUNCE_MS = 400;
 export const RANK_TOP_K = 20;
+// Must match DiseaseRankingRequestAPI.terms max_length on the server
+export const MAX_PROFILE_TERMS = 200;
+const ASSERTION_PRIORITY = { affirmed: 0, uncertain: 1, negated: 2 };
+
+/**
+ * Profile terms for the request: one entry per HPO ID (first wins), present terms
+ * first, then uncertain, then excluded, capped at MAX_PROFILE_TERMS.
+ * @returns {{terms: Array<{hpo_id: string, assertion: string}>, dropped: number}}
+ */
+export function buildProfile(phenotypes) {
+  const seen = new Set();
+  const unique = [];
+  for (const p of phenotypes) {
+    if (!p?.hpo_id || seen.has(p.hpo_id)) continue;
+    seen.add(p.hpo_id);
+    unique.push(toProfileTerm(p));
+  }
+  const ordered = unique
+    .map((t, i) => ({ t, i }))
+    .sort(
+      (a, b) => ASSERTION_PRIORITY[a.t.assertion] - ASSERTION_PRIORITY[b.t.assertion] || a.i - b.i
+    )
+    .map(({ t }) => t);
+  return {
+    terms: ordered.slice(0, MAX_PROFILE_TERMS),
+    dropped: Math.max(0, ordered.length - MAX_PROFILE_TERMS),
+  };
+}
 
 // Collection and B0 export vocabulary (phentrieve/assertion_vocab.py) for a present finding.
 const AFFIRMED_ASSERTIONS = new Set(['', 'affirmed', 'present', 'yes', 'positive', 'confirmed']);
@@ -53,6 +81,7 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
   const error = ref(null);
   const result = ref(null);
   const lastPhenotypes = ref([]);
+  const droppedTerms = ref(0);
 
   let timer = null;
   let controller = null;
@@ -102,7 +131,8 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
   async function rankNow(phenotypes = lastPhenotypes.value) {
     cancelPending();
     lastPhenotypes.value = Array.isArray(phenotypes) ? [...phenotypes] : [];
-    const terms = lastPhenotypes.value.filter((p) => p?.hpo_id).map(toProfileTerm);
+    const { terms, dropped } = buildProfile(lastPhenotypes.value);
+    droppedTerms.value = dropped;
     const mine = ++seq;
     const scorable = (t) =>
       t.assertion === 'affirmed' || (includeUncertain.value && t.assertion === 'uncertain');
@@ -180,6 +210,7 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
     error.value = null;
     result.value = null;
     lastPhenotypes.value = [];
+    droppedTerms.value = 0;
   }
 
   return {
@@ -193,6 +224,7 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
     available,
     uncertainCount,
     presentCount,
+    droppedTerms,
     checkAvailability,
     rankNow,
     scheduleRank,

@@ -595,7 +595,8 @@
       "scored": "Evaluados: {count} término(s)",
       "excluded": "{count} excluido(s) · solo cuenta como conflicto",
       "notScored": "{count} sin evaluar",
-      "auto": "Se actualiza automáticamente"
+      "auto": "Se actualiza automáticamente",
+      "dropped": "{count} término(s) no enviado(s) (límite {max})"
     },
     "loading": "Clasificando enfermedades",
     "empty": "Recopile al menos un fenotipo presente para ver enfermedades similares.",

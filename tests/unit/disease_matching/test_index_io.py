@@ -94,3 +94,29 @@ def test_info_file_is_readable_without_loading(tmp_path: Path) -> None:
     assert info["hpo_version"] == "v2026-09-01"
     assert info["n_diseases"] == 4
     assert "arrays_sha256" in info
+
+
+def test_missing_payload_key_is_not_available(tmp_path: Path) -> None:
+    build_mini().save(tmp_path)
+    meta_path = tmp_path / INDEX_META_FILENAME
+    payload = json.loads(meta_path.read_text())
+    del payload["twins"]
+    meta_path.write_text(json.dumps(payload))
+    with pytest.raises(IndexNotAvailableError, match="Damaged"):
+        load_index(tmp_path)
+
+
+def test_index_is_valid_detects_incomplete_and_mismatched(tmp_path: Path) -> None:
+    from phentrieve.disease_matching.index import index_is_valid
+
+    assert not index_is_valid(tmp_path)
+    build_mini().save(tmp_path)
+    assert index_is_valid(tmp_path)
+    path = tmp_path / INDEX_ARRAYS_FILENAME
+    path.write_bytes(path.read_bytes() + b"x")
+    assert not index_is_valid(tmp_path)
+
+
+def test_save_leaves_no_part_files(tmp_path: Path) -> None:
+    build_mini().save(tmp_path)
+    assert not list(tmp_path.glob("*.part"))

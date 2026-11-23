@@ -96,8 +96,8 @@ describe('diseaseRanking store', () => {
     expect(payload).toEqual({
       terms: [
         { hpo_id: 'HP:0001166', assertion: 'affirmed' },
-        { hpo_id: 'HP:0001249', assertion: 'negated' },
         { hpo_id: 'HP:0002650', assertion: 'uncertain' },
+        { hpo_id: 'HP:0001249', assertion: 'negated' },
       ],
       level: 'disease',
       top_k: 20,
@@ -228,5 +228,50 @@ describe('diseaseRanking store review fixes', () => {
     await store.checkAvailability();
     expect(store.available).toBe(true);
     expect(PhentrieveService.getConfigInfo).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('diseaseRanking profile cap', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  it('dedupes, orders by assertion and caps the request at the server limit', async () => {
+    const { buildProfile, MAX_PROFILE_TERMS } = await import('../../stores/diseaseRanking');
+    const many = [
+      { hpo_id: 'HP:9000000', assertion_status: 'negated' },
+      { hpo_id: 'HP:9000001', assertion_status: 'unknown' },
+      ...Array.from({ length: MAX_PROFILE_TERMS + 5 }, (_, i) => ({
+        hpo_id: `HP:${String(i).padStart(7, '0')}`,
+        assertion_status: 'affirmed',
+      })),
+      { hpo_id: 'HP:0000000', assertion_status: 'negated' }, // duplicate ID
+    ];
+    const { terms, dropped } = buildProfile(many);
+    expect(terms).toHaveLength(MAX_PROFILE_TERMS);
+    expect(dropped).toBe(7);
+    expect(terms.every((t) => t.assertion === 'affirmed')).toBe(true);
+    expect(new Set(terms.map((t) => t.hpo_id)).size).toBe(terms.length);
+  });
+
+  it('reports dropped terms in the store', async () => {
+    PhentrieveService.rankDiseases.mockResolvedValue({
+      level: 'disease',
+      diseases: [],
+      genes: [],
+      scored: [],
+      excluded: [],
+      not_scored: [],
+    });
+    const store = useDiseaseRankingStore();
+    await store.open(
+      Array.from({ length: 205 }, (_, i) => ({
+        hpo_id: `HP:${String(i).padStart(7, '0')}`,
+        assertion_status: 'affirmed',
+      }))
+    );
+    expect(PhentrieveService.rankDiseases.mock.calls[0][0].terms).toHaveLength(200);
+    expect(store.droppedTerms).toBe(5);
   });
 });

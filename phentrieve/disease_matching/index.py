@@ -105,7 +105,12 @@ class DiseaseIndex:
         return self.term_index.get(hpo_id)
 
     def save(self, index_dir: Path) -> None:
-        """Write the arrays (npz) and the tables plus metadata (JSON) with the npz checksum."""
+        """Write the arrays (npz) and the tables plus metadata (JSON) with the npz checksum.
+
+        The arrays are swapped in last, after the JSON that records their checksum, so an
+        interrupted save leaves an index that fails :func:`index_is_valid` (and gets
+        rebuilt) instead of one that looks complete.
+        """
         index_dir.mkdir(parents=True, exist_ok=True)
         arrays_path = index_dir / INDEX_ARRAYS_FILENAME
         tmp = arrays_path.with_name(arrays_path.name + ".part")
@@ -121,10 +126,9 @@ class DiseaseIndex:
                 ann_f=self.ann_f,
                 ann_source=self.ann_source,
             )
-        tmp.replace(arrays_path)
         meta = dict(self.meta)
         meta["format_version"] = INDEX_FORMAT_VERSION
-        meta["arrays_sha256"] = _sha256(arrays_path)
+        meta["arrays_sha256"] = _sha256(tmp)
         payload = {
             "meta": meta,
             "term_ids": self.term_ids,
@@ -136,13 +140,17 @@ class DiseaseIndex:
             "twins": {str(k): v for k, v in self.twins.items()},
             "other_terms": self.other_terms,
         }
-        meta_path = index_dir / INDEX_META_FILENAME
-        tmp_meta = meta_path.with_name(meta_path.name + ".part")
-        tmp_meta.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp_meta.replace(meta_path)
-        (index_dir / INDEX_INFO_FILENAME).write_text(
-            json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8"
-        )
+        for path, text in (
+            (index_dir / INDEX_META_FILENAME, json.dumps(payload, ensure_ascii=False)),
+            (
+                index_dir / INDEX_INFO_FILENAME,
+                json.dumps(meta, ensure_ascii=False, indent=1),
+            ),
+        ):
+            part = path.with_name(path.name + ".part")
+            part.write_text(text, encoding="utf-8")
+            part.replace(path)
+        tmp.replace(arrays_path)
         self.meta = meta
 
 
@@ -167,6 +175,16 @@ def index_exists(index_dir: Path) -> bool:
     ).is_file()
 
 
+def index_is_valid(index_dir: Path) -> bool:
+    """Complete, supported and matching its checksum (hashes the ~1 MB arrays file)."""
+    info = read_index_info(index_dir)
+    return bool(
+        info
+        and info.get("format_version") == INDEX_FORMAT_VERSION
+        and info.get("arrays_sha256") == _sha256(index_dir / INDEX_ARRAYS_FILENAME)
+    )
+
+
 def read_index_info(index_dir: Path) -> dict[str, Any] | None:
     """The index metadata without loading the index; None when absent or unreadable."""
     if not index_exists(index_dir):
@@ -189,7 +207,9 @@ def load_index(index_dir: Path) -> DiseaseIndex:
     try:
         payload = json.loads(meta_path.read_text(encoding="utf-8"))
         meta = payload["meta"]
-    except (OSError, ValueError, KeyError) as error:
+        if not isinstance(meta, dict):
+            raise ValueError("meta is not an object")
+    except (OSError, ValueError, KeyError, TypeError) as error:
         raise IndexNotAvailableError(
             f"Unreadable disease index metadata: {error}"
         ) from error
@@ -203,24 +223,30 @@ def load_index(index_dir: Path) -> DiseaseIndex:
             "Disease index arrays do not match their recorded checksum. "
             "Rebuild it with `phentrieve data prepare-diseases --force`."
         )
-    with np.load(arrays_path, allow_pickle=False) as arrays:
-        data = {k: arrays[k] for k in arrays.files}
-    return DiseaseIndex(
-        term_ids=payload["term_ids"],
-        term_labels=payload["term_labels"],
-        aliases=payload["aliases"],
-        ic=data["ic"],
-        self_ic=data["self_ic"],
-        anc_ptr=data["anc_ptr"],
-        anc_idx=data["anc_idx"],
-        disease_ids=payload["disease_ids"],
-        disease_labels=payload["disease_labels"],
-        dis_ptr=data["dis_ptr"],
-        ann_term=data["ann_term"],
-        ann_f=data["ann_f"],
-        ann_source=data["ann_source"],
-        gene_diseases={g: list(v) for g, v in payload["gene_diseases"].items()},
-        twins={int(k): list(v) for k, v in payload["twins"].items()},
-        other_terms=payload.get("other_terms", []),
-        meta=meta,
-    )
+    try:
+        with np.load(arrays_path, allow_pickle=False) as arrays:
+            data = {k: arrays[k] for k in arrays.files}
+        return DiseaseIndex(
+            term_ids=payload["term_ids"],
+            term_labels=payload["term_labels"],
+            aliases=payload["aliases"],
+            ic=data["ic"],
+            self_ic=data["self_ic"],
+            anc_ptr=data["anc_ptr"],
+            anc_idx=data["anc_idx"],
+            disease_ids=payload["disease_ids"],
+            disease_labels=payload["disease_labels"],
+            dis_ptr=data["dis_ptr"],
+            ann_term=data["ann_term"],
+            ann_f=data["ann_f"],
+            ann_source=data["ann_source"],
+            gene_diseases={g: list(v) for g, v in payload["gene_diseases"].items()},
+            twins={int(k): list(v) for k, v in payload["twins"].items()},
+            other_terms=payload.get("other_terms", []),
+            meta=meta,
+        )
+    except Exception as error:  # noqa: BLE001 - any damage means "not available"
+        raise IndexNotAvailableError(
+            f"Damaged disease index ({type(error).__name__}: {error}). "
+            "Rebuild it with `phentrieve data prepare-diseases --force`."
+        ) from error

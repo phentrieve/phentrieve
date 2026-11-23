@@ -135,7 +135,7 @@ def prepare_disease_index(
     from phentrieve.data_processing.hpo_parser import resolve_hpo_version
     from phentrieve.disease_matching.index import (
         default_index_dir,
-        index_exists,
+        index_is_valid,
         read_index_info,
     )
     from phentrieve.disease_matching.index_builder import (
@@ -147,7 +147,8 @@ def prepare_disease_index(
 
     setup_logging_cli(debug=debug)
     index_dir = default_index_dir(data_dir)
-    if index_exists(index_dir) and not force:
+    # An incomplete or damaged index (interrupted save) is rebuilt without --force.
+    if index_is_valid(index_dir) and not force:
         built = read_index_info(index_dir) or {}
         stale = [
             f"{name} {built.get(key)} -> {wanted}"
@@ -155,7 +156,8 @@ def prepare_disease_index(
                 ("HPO", "hpo_version", hpo_version),
                 ("MONDO", "mondo_version", mondo_version),
             )
-            if wanted and built.get(key) != wanted
+            # "latest" is not a pin: keep the existing index
+            if wanted and wanted.lower() != "latest" and built.get(key) != wanted
         ]
         if not stale:
             typer.echo(

@@ -319,17 +319,14 @@ def rank(
     result.total_candidates = len(names)
     for i in order.tolist():
         gene = names[i]
-        best = genes[gene][1]
-        # Name the OMIM twin of an ORPHA best only if it is linked to this gene too
-        twin = index.twin_of.get(best)
-        shown = twin if twin is not None and twin in index.gene_diseases[gene] else best
+        best = genes[gene][1]  # the disease that gives the gene its score
         result.genes.append(
             RankedGene(
                 rank=int(ranks[i]),
                 gene=gene,
                 score=round(float(values[i]), 6),
-                best_disease_id=index.disease_ids[shown],
-                best_disease_label=index.disease_labels[shown],
+                best_disease_id=index.disease_ids[best],
+                best_disease_label=index.disease_labels[best],
                 explanation=explainer.explain(best),
             )
         )

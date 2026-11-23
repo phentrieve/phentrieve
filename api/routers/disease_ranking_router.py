@@ -21,6 +21,7 @@ from api.schemas.disease_ranking_schemas import (
     DiseaseRankingResponseAPI,
 )
 from phentrieve.disease_matching import IndexNotAvailableError, ProfileTerm, rank
+from phentrieve.utils import sanitize_log_value as _sanitize
 
 logger = logging.getLogger(__name__)
 router = APIRouter()  # Prefix is added in main.py
@@ -72,7 +73,7 @@ async def rank_diseases(
     )
     logger.info(
         "Disease ranking: level=%s terms=%d scored=%d",
-        request.level,
+        _sanitize(request.level),
         len(terms),
         len(result.scored),
     )

@@ -189,3 +189,54 @@ def test_status_rejects_an_unsupported_index_format(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", str(tmp_path))
     disease_index_state.reset_disease_index()
     assert disease_index_state.disease_ranking_status()["index_ready"] is False
+
+
+def test_expired_failure_is_retried_and_reported_ready(
+    monkeypatch, tmp_path, mocker
+) -> None:
+    from phentrieve.disease_matching.index import INDEX_ARRAYS_FILENAME
+
+    build_mini().save(tmp_path)
+    path = tmp_path / INDEX_ARRAYS_FILENAME
+    good = path.read_bytes()
+    path.write_bytes(good + b"corrupt")
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_RANKING_ENABLED", True)
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", str(tmp_path))
+    disease_index_state.reset_disease_index()
+    client = TestClient(create_app())
+    assert client.post("/api/v1/diseases/rank", json=PROFILE).status_code == 503
+    assert disease_index_state.disease_ranking_status()["index_ready"] is False
+    path.write_bytes(good)  # repaired
+    monkeypatch.setattr(disease_index_state, "RETRY_AFTER_SECONDS", 0.0)
+    assert disease_index_state.disease_ranking_status()["index_ready"] is True
+    assert client.post("/api/v1/diseases/rank", json=PROFILE).status_code == 200
+    disease_index_state.reset_disease_index()
+
+
+def test_rebuilt_index_is_reloaded(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_RANKING_ENABLED", True)
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", str(tmp_path))
+    disease_index_state.reset_disease_index()
+    build_mini().save(tmp_path)
+    first = disease_index_state.get_disease_index()
+    assert disease_index_state.get_disease_index() is first  # cached
+    rebuilt = build_mini(merge_orpha=False)
+    rebuilt.save(tmp_path)
+    second = disease_index_state.get_disease_index()
+    assert second is not first
+    assert second.meta["merge_orpha"] is False
+    disease_index_state.reset_disease_index()
+
+
+def test_index_dir_follows_the_cli_resolution(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", "")
+    monkeypatch.setattr(
+        "phentrieve.disease_matching.index.default_index_dir",
+        lambda data_dir=None: tmp_path / "from-cli",
+    )
+    monkeypatch.setattr(
+        disease_index_state,
+        "default_index_dir",
+        lambda data_dir=None: tmp_path / "from-cli",
+    )
+    assert disease_index_state.disease_index_dir() == tmp_path / "from-cli"

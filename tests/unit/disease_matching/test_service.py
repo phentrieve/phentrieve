@@ -142,14 +142,16 @@ def test_weak_matches_are_listed_as_unexplained(mini_index: DiseaseIndex) -> Non
     assert {m.profile_id for m in one.matches} == {"HP:0000003", "HP:0000020"}
 
 
-def test_gene_level_reports_the_omim_row_for_an_orpha_best(
+def test_gene_level_shows_and_explains_the_disease_that_scored(
     mini_index_plain: DiseaseIndex,
 ) -> None:
     result = rank(mini_index_plain, _p(("HP:0000020", "affirmed")), level="gene")
     assert result.level == "gene"
     assert result.diseases == []
     genea = next(g for g in result.genes if g.gene == "GENEA")
-    assert genea.best_disease_id == "OMIM:100001"
+    # ORPHA:900001 outscores its OMIM twin here, so the row names and explains it.
+    assert genea.best_disease_id == "ORPHA:900001"
+    assert genea.explanation.annotation_sources == ["orpha"]
     assert result.total_candidates == 3
     assert [g.rank for g in result.genes] == sorted(g.rank for g in result.genes)
 
@@ -196,7 +198,7 @@ def test_folded_row_is_explained_by_the_disease_that_scored_it(
     assert row.explanation.annotation_sources == ["orpha"]
 
 
-def test_gene_level_keeps_the_orpha_best_when_the_twin_is_another_genes(
+def test_gene_level_never_names_a_disease_of_another_gene(
     mini_index_plain: DiseaseIndex,
 ) -> None:
     import dataclasses
@@ -206,10 +208,8 @@ def test_gene_level_keeps_the_orpha_best_when_the_twin_is_another_genes(
     genes["GENEE"] = [orpha]  # ORPHA entry linked to a gene its OMIM twin is not
     ix = dataclasses.replace(mini_index_plain, gene_diseases=genes)
     result = rank(ix, _p(("HP:0000020", "affirmed")), level="gene")
-    by_gene = {g.gene: g for g in result.genes}
-    assert by_gene["GENEE"].best_disease_id == "ORPHA:900001"
-    assert by_gene["GENEA"].best_disease_id == "OMIM:100001"
-    assert by_gene["GENEA"].explanation.matches[0].source == "orpha"
+    for g in result.genes:
+        assert ix.disease_index[g.best_disease_id] in ix.gene_diseases[g.gene]
 
 
 def test_orpha_disease_annotations_are_labelled_orpha(mini_index: DiseaseIndex) -> None:

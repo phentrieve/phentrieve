@@ -595,7 +595,8 @@
       "scored": "Scored: {count} term(s)",
       "excluded": "{count} excluded · counts only as a conflict",
       "notScored": "{count} not scored",
-      "auto": "Updates automatically"
+      "auto": "Updates automatically",
+      "dropped": "{count} term(s) not sent (limit {max})"
     },
     "loading": "Ranking diseases",
     "empty": "Collect at least one present phenotype to see similar diseases.",

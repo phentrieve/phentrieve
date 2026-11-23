@@ -595,7 +595,8 @@
       "scored": "Beoordeeld: {count} term(en)",
       "excluded": "{count} uitgesloten · telt alleen als conflict",
       "notScored": "{count} niet beoordeeld",
-      "auto": "Wordt automatisch bijgewerkt"
+      "auto": "Wordt automatisch bijgewerkt",
+      "dropped": "{count} term(en) niet verzonden (limiet {max})"
     },
     "loading": "Aandoeningen worden gerangschikt",
     "empty": "Verzamel ten minste één aanwezig fenotype om vergelijkbare aandoeningen te zien.",
