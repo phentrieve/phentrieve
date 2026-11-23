@@ -205,8 +205,8 @@ One PR from `main` on `feat/disease-ranking`, behind the flag, with one commit p
 4. frontend;
 5. docs and changelog.
 
-If the PR grows past roughly 1,500 lines without tests, split it into a backend PR and a
-frontend PR.
+The PR stays one PR regardless of size (decision 2026-11-23). The per-layer commits are the
+review units.
 
 The PoC directory `scripts/disease_ranking_451/` on `main` stays as it is. The library is a
 clean copy, not an import from it.
