@@ -266,6 +266,18 @@ describe('PhenotypeCollectionPanel disease ranking entry', () => {
     expect(useDiseaseRankingStore().panelOpen).toBe(true);
   });
 
+  it('renders the ranking drawer only while it is open', async () => {
+    PhentrieveService.rankDiseases.mockResolvedValue(DISEASE_RESULT);
+    const wrapper = await mountCollection({ enabled: true, index_ready: true }, phenotypes);
+    expect(wrapper.find('[data-testid="disease-ranking-drawer"]').exists()).toBe(false);
+    await wrapper.find('[data-testid="collection-rank-diseases"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="disease-ranking-drawer"]').exists()).toBe(true);
+    useDiseaseRankingStore().close();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="disease-ranking-drawer"]').exists()).toBe(false);
+  });
+
   it('is disabled without a present phenotype', async () => {
     const wrapper = await mountCollection({ enabled: true, index_ready: true }, [
       { hpo_id: 'HP:0001249', assertion_status: 'negated' },

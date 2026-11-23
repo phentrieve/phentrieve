@@ -311,7 +311,12 @@
         </div>
       </template>
     </v-navigation-drawer>
-    <DiseaseRankingPanel v-if="rankingAvailable" :phenotypes="phenotypes" />
+    <!-- Rendered only while open: a closed drawer is only translated by its own width and
+         would sit over the case workspace (stacked beside it), blocking it (#557 review). -->
+    <DiseaseRankingPanel
+      v-if="rankingAvailable && rankingStore.panelOpen"
+      :phenotypes="phenotypes"
+    />
   </div>
 </template>
 

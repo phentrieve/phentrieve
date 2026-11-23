@@ -5,7 +5,7 @@
     :width="drawerWidth"
     mobile-breakpoint="md"
     disable-resize-watcher
-    style="z-index: 1510"
+    :style="{ zIndex: drawerZIndex }"
     :aria-label="t('diseaseRanking.title')"
     data-testid="disease-ranking-drawer"
     @update:model-value="onDrawerToggle"
@@ -262,6 +262,8 @@ const { t } = useI18n();
 const display = useDisplay();
 // Beside the case workspace from md up; full width over it on small screens
 const drawerWidth = computed(() => (display.mdAndUp.value ? 560 : display.width.value));
+// Over the case workspace (1500) only on small screens, where it is a full-width overlay
+const drawerZIndex = computed(() => (display.mdAndUp.value ? 1490 : 1510));
 const store = useDiseaseRankingStore();
 const openRow = ref(null);
 
