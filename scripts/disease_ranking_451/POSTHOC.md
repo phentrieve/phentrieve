@@ -176,3 +176,26 @@ directory are set up as in `run.sh`. The registered analyses need nothing extra.
 The extraction and reorder outputs are committed in `results/`; the shuffled-consensus runs
 are committed gzipped. Re-running the LLM steps costs API credit (Gemini) or Claude Code
 usage, and the outputs will vary slightly from run to run.
+
+## 9. Scorer weights: gamma and trimmed forward (`scoring_variants.py`, 2026-11-23)
+
+Question: do the two VarLens v2 defaults that were never tuned on real data help here? VarLens's
+real-data tuning (`external-tuning.md`) searched only tau, background correction and exclusion
+mode; gamma 0.55 and alpha_f 0.25 are spec defaults.
+
+- Grid: gamma in {0.55, 0.7, 0.85, 1.0} x q in {1.0, 0.8, 0.6, 0.4}, where Fwd averages only the
+  best patient lanes per disease up to a share q of the lane weight (q = 1 is the shipped scorer).
+- Arms: gold terms and the cached LLM negfix extractions (DE, EN). Deterministic, no LLM calls.
+  The shipped point reproduces `scorer.score` (asserted on 50 profiles) and the reported numbers.
+- Selection on dev (mean Hit@10 of the three arms): gamma 0.55, q 0.6 (0.634 vs 0.613).
+- Test, non-cited, n = 289 (already seen, so descriptive only), chosen minus shipped:
+  gold Hit@10 0.557 -> 0.529 (-2.8 pp [-6.0, +0.4]), Hit@1 -6.6 pp [-11.6, -1.9];
+  LLM DE 0.471 -> 0.450; LLM EN 0.474 -> 0.450.
+- No grid point beats the shipped setting on test by more than 0.4 pp Hit@10; a higher gamma
+  hurts throughout, so the reverse score carries signal.
+
+**Result: negative.** The dev gain is noise (60 non-cited dev cases). The scorer weights are not
+the lever; the misses remain an annotation-coverage gap (section 4, point 2).
+
+Reproduce: `python -I scoring_variants.py <hpo_dir>` (writes `results/scoring_variants.csv` and
+`results/scoring_variants_ranks.csv`).
