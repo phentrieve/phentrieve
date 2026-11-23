@@ -199,3 +199,50 @@ the lever; the misses remain an annotation-coverage gap (section 4, point 2).
 
 Reproduce: `python -I scoring_variants.py <hpo_dir>` (writes `results/scoring_variants.csv` and
 `results/scoring_variants_ranks.csv`).
+
+## 10. Annotation enrichment: ORPHA merge and gene union (`enrichment.py`, 2026-11-23)
+
+Question: do more curated annotations close the coverage gap of section 4, point 2? The scorer
+stays at the shipped setting; only the annotations it scores against change.
+
+- **orpha:** each OMIM disease of the index also gets the HPOA annotations of every ORPHA disease
+  that MONDO v2026-09-01 marks as equivalent (`MONDO:equivalentTo` on both xrefs of one term);
+  per term the higher frequency wins. 1,582 OMIM diseases gain terms, among them 172 of the 400
+  case targets (median target annotations 33 -> 44).
+- **union:** one extra candidate per gene with two or more diseases (3,231 genes), the union of
+  its diseases' annotations. It only changes gene ranks.
+- No free parameters, so dev and the non-cited test split are both reported; test has been seen,
+  so the numbers stay descriptive. Inputs: HPO v2026-09-01 (checksums as in `manifest.json`),
+  `mondo.obo` v2026-09-01 (SHA256 `50c8367f9bd9978321eedf84d4e2e79cb757efbed514c81effb00b9ad2e49994`).
+
+Test, non-cited, n = 289, Hit@10, enriched minus base (PMID-clustered 95% CI):
+
+| Rank | Variant | Gold | LLM DE | LLM EN |
+|---|---|---|---|---|
+| disease | orpha | 0.557 -> 0.606, +4.8 [+1.1, +9.1] | 0.471 -> 0.512, +4.2 [+0.7, +7.9] | 0.474 -> 0.526, +5.2 [+2.5, +8.1] |
+| gene | orpha | +1.0 [-0.7, +2.9] | +0.0 [-2.6, +2.6] | +0.3 [-1.6, +2.4] |
+| gene | union | +4.8 [+1.0, +9.3] | +2.4 [-1.6, +6.5] | +0.0 [-3.1, +3.1] |
+
+Dev (n = 111) points the same way for orpha (disease Hit@10 +3.6 / +4.5 / +7.2 pp); union is
+mixed on dev. Disease Hit@50 rises by about 3 pp with orpha.
+
+Twin check (gold, test): 18 cases enter the disease top 10 with orpha; in 15 the ORPHA twin
+ranked above the target before. With the twins removed from the universe, all 18 still enter
+the top 10, so the gain is not just the twin being overtaken.
+
+**Result:**
+
+- **orpha:** a consistent gain for naming the right disease, at no tuning cost. It does not help
+  gene ranking, because the ORPHA twin already carried the gene. Candidate for the registered
+  confirmation run.
+- **union:** inconsistent, and breadth bias was not measured; drop it.
+- Most of the coverage gap remains.
+
+Licence note (not legal advice): MONDO is CC BY 4.0. Orphadata Science data is CC BY 4.0, with
+provenance, a note on changes, and an AI-use statement. The HPO docs ask for OMIM's permission
+to reuse OMIM-derived annotations in other software products. The HPO licence page linked from
+`hp.json` returned 404 on 2026-11-23. Only scripts and ranks are committed here, no
+annotation data.
+
+Reproduce: `python -I enrichment.py <hpo_dir> <mondo.obo>` (writes `results/enrichment.csv` and
+`results/enrichment_ranks.csv`).
