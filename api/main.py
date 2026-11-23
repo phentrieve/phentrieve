@@ -273,6 +273,15 @@ def create_app() -> FastAPI:
     application.include_router(
         text_processing_router.router, tags=["Text Processing and HPO Extraction"]
     )
+    if api_config.PHENTRIEVE_DISEASE_RANKING_ENABLED:
+        from api.routers import disease_ranking_router
+
+        application.include_router(
+            disease_ranking_router.router,
+            prefix=f"{API_V1_PREFIX}/diseases",
+            tags=["Disease Ranking (research use)"],
+        )
+        logger.info("Disease ranking enabled: mounted /api/v1/diseases routes.")
 
     @application.get(API_V1_PREFIX, include_in_schema=False)
     @application.get(f"{API_V1_PREFIX}/", include_in_schema=False)

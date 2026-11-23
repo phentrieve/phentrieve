@@ -150,6 +150,12 @@ services:
       # PHENTRIEVE_DATA_FORCE_SYNC: Force sync even if versions match (default: false)
       - PHENTRIEVE_DATA_SYNC=${PHENTRIEVE_DATA_SYNC:-true}
       - PHENTRIEVE_DATA_FORCE_SYNC=${PHENTRIEVE_DATA_FORCE_SYNC:-false}
+      # Disease ranking (research use, off by default). When enabled, the
+      # entrypoint builds <data>/disease_index on first start if it is missing;
+      # pin the inputs with the two version variables (default: latest releases).
+      - PHENTRIEVE_DISEASE_RANKING_ENABLED=${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}
+      - PHENTRIEVE_DISEASE_HPO_VERSION=${PHENTRIEVE_DISEASE_HPO_VERSION:-}
+      - PHENTRIEVE_DISEASE_MONDO_VERSION=${PHENTRIEVE_DISEASE_MONDO_VERSION:-}
       # Quota enforcement and proxy trust for public LLM requests
       - PHENTRIEVE_ENV=${PHENTRIEVE_ENV:-production}
       - PHENTRIEVE_TRUSTED_PROXY_CIDRS=${PHENTRIEVE_TRUSTED_PROXY_CIDRS:-172.16.0.0/12,127.0.0.1/32}

@@ -32,6 +32,8 @@ __all__ = [
     "PHENTRIEVE_LLM_QUOTA_DB_PATH",
     "PHENTRIEVE_PUBLIC_HOSTED_MODE",
     "PHENTRIEVE_REQUIRE_RESEARCH_ACK",
+    "PHENTRIEVE_DISEASE_RANKING_ENABLED",
+    "PHENTRIEVE_DISEASE_INDEX_DIR",
     "PHENTRIEVE_AUTH_ENABLED",
     "PHENTRIEVE_AUTH_JWT_SECRET",
     "PHENTRIEVE_AUTH_DB_PATH",
@@ -288,6 +290,17 @@ PHENTRIEVE_PUBLIC_HOSTED_MODE: bool = _env_bool("PHENTRIEVE_PUBLIC_HOSTED_MODE",
 PHENTRIEVE_REQUIRE_RESEARCH_ACK: bool = _env_bool(
     "PHENTRIEVE_REQUIRE_RESEARCH_ACK", False
 )
+
+# =============================================================================
+# Disease ranking (research use, off by default)
+# =============================================================================
+# Ranks diseases and genes for a profile of HPO terms. The router is mounted only
+# when enabled. The index is built by `phentrieve data prepare-diseases`; it is
+# read from PHENTRIEVE_DISEASE_INDEX_DIR, else from <data dir>/disease_index.
+PHENTRIEVE_DISEASE_RANKING_ENABLED: bool = _env_bool(
+    "PHENTRIEVE_DISEASE_RANKING_ENABLED", False
+)
+PHENTRIEVE_DISEASE_INDEX_DIR: str = os.getenv("PHENTRIEVE_DISEASE_INDEX_DIR", "")
 
 # =============================================================================
 # Authentication and accounts

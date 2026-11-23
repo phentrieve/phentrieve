@@ -82,3 +82,15 @@ def test_unreadable_metadata_raises(tmp_path: Path) -> None:
     (tmp_path / INDEX_META_FILENAME).write_text("{not json")
     with pytest.raises(IndexNotAvailableError, match="Unreadable"):
         load_index(tmp_path)
+
+
+def test_info_file_is_readable_without_loading(tmp_path: Path) -> None:
+    from phentrieve.disease_matching.index import read_index_info
+
+    assert read_index_info(tmp_path) is None
+    build_mini().save(tmp_path)
+    info = read_index_info(tmp_path)
+    assert info is not None
+    assert info["hpo_version"] == "v2026-09-01"
+    assert info["n_diseases"] == 4
+    assert "arrays_sha256" in info

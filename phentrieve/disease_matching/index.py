@@ -14,6 +14,7 @@ INDEX_FORMAT_VERSION = 1
 INDEX_DIRNAME = "disease_index"
 INDEX_ARRAYS_FILENAME = "disease_index.npz"
 INDEX_META_FILENAME = "disease_index.json"
+INDEX_INFO_FILENAME = "disease_index.info.json"  # metadata only, cheap to read
 
 # Annotation source flags (bit set): own HPOA rows of the disease, rows merged from ORPHA.
 SOURCE_OWN = 1
@@ -139,6 +140,9 @@ class DiseaseIndex:
         tmp_meta = meta_path.with_name(meta_path.name + ".part")
         tmp_meta.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         tmp_meta.replace(meta_path)
+        (index_dir / INDEX_INFO_FILENAME).write_text(
+            json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         self.meta = meta
 
 
@@ -161,6 +165,17 @@ def index_exists(index_dir: Path) -> bool:
     return (index_dir / INDEX_ARRAYS_FILENAME).is_file() and (
         index_dir / INDEX_META_FILENAME
     ).is_file()
+
+
+def read_index_info(index_dir: Path) -> dict[str, Any] | None:
+    """The index metadata without loading the index; None when absent or unreadable."""
+    if not index_exists(index_dir):
+        return None
+    try:
+        info = json.loads((index_dir / INDEX_INFO_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return info if isinstance(info, dict) else None
 
 
 def load_index(index_dir: Path) -> DiseaseIndex:

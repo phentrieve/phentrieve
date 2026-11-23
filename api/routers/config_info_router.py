@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from api.disease_index_state import disease_ranking_status
 from api.schemas.config_info_schemas import (
     ChunkingConfig,
     DefaultParametersAPI,
@@ -18,6 +19,7 @@ from api.schemas.config_info_schemas import (
     PhentrieveConfigInfoResponseAPI,
     PublicLLMCapabilitiesAPI,
 )
+from api.schemas.disease_ranking_schemas import DiseaseRankingStatusAPI
 
 # Import constants and getters from Phentrieve's config
 from phentrieve import config as phentrieve_config
@@ -156,6 +158,7 @@ async def get_phentrieve_info():
             public_llm_capabilities=PublicLLMCapabilitiesAPI.model_validate(
                 get_public_llm_capabilities()
             ),
+            disease_ranking=DiseaseRankingStatusAPI(**disease_ranking_status()),
         )
 
     except Exception as e:
