@@ -1,0 +1,13 @@
+#description: "invented test annotations"
+#version: 2026-09-01
+database_id	disease_name	qualifier	hpo_id	reference	evidence	onset	frequency	sex	modifier	aspect	biocuration
+OMIM:100001	Disease One		HP:0000003	PMID:1	PCS		HP:0040281			P	HPO:test
+OMIM:100001	Disease One		HP:0000011	PMID:1	PCS		1/2			P	HPO:test
+OMIM:100001	Disease One		HP:0000006	PMID:1	PCS					I	HPO:test
+OMIM:100002	Disease Two		HP:0000004	PMID:2	PCS		HP:0040282			P	HPO:test
+OMIM:100002	Disease Two		HP:0000012	PMID:2	PCS		50%			P	HPO:test
+OMIM:100002	Disease Two	NOT	HP:0000020	PMID:2	PCS					P	HPO:test
+OMIM:100003	Disease Three		HP:0000003	PMID:3	PCS					P	HPO:test
+ORPHA:900001	Orpha One		HP:0000020	ORPHA:900001	TAS		HP:0040282			P	ORPHA:orphadata
+ORPHA:900001	Orpha One		HP:0000099	ORPHA:900001	TAS		HP:0040283			P	ORPHA:orphadata
+ORPHA:900002	Orpha Two		HP:0000011	ORPHA:900002	TAS		HP:0040281			P	ORPHA:orphadata
