@@ -18,6 +18,22 @@ together:
 
 ## [Unreleased]
 
+### Added
+
+- **Disease and gene ranking from collected phenotypes (research use, off by default).**
+  A "Similar diseases" panel in the case workspace ranks rare diseases or genes for the
+  collected HPO terms and explains each row: matched term pairs, conflicts with excluded
+  terms, unexplained terms and annotation sources.
+  - Scoring uses Phentrieve's own copy of the issue #451 port of the VarLens phenotype
+    scoring v2. VarLens itself is unchanged.
+  - The new `phentrieve data prepare-diseases` command builds a local disease index from
+    pinned HPO and MONDO releases. Each OMIM disease gets the annotations of its
+    MONDO-equivalent Orphanet entries.
+  - The API serves it as `POST /api/v1/diseases/rank` behind
+    `PHENTRIEVE_DISEASE_RANKING_ENABLED`. config-info reports the feature status.
+  - See `docs/user-guide/disease-ranking.md` for the open points (evidence, intended use,
+    OMIM licence) to settle before enabling it publicly.
+
 ## [0.33.0] — 2026-11-17 (CLI 0.33.0 / API 0.23.0 / Frontend 0.23.0)
 
 `PROMPT_BEHAVIOR_VERSION` is `10`: the LLM prompt, payload, candidate and phrase changes

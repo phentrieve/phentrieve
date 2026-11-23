@@ -46,6 +46,7 @@ nav:
     - 'Configuration Profiles': 'user-guide/configuration-profiles.md'
     - 'API Usage': 'user-guide/api-usage.md'
     - 'Frontend Usage': 'user-guide/frontend-usage.md'
+    - 'Disease Ranking': 'user-guide/disease-ranking.md'
   - 'Core Concepts':
     - 'Overview': 'core-concepts/index.md'
     - 'Multilingual Embeddings': 'core-concepts/multilingual-embeddings.md'

@@ -3,7 +3,8 @@
 - Date: 2026-11-23
 - Spec: `.planning/specs/2026-11-23-disease-ranking-design.md`
 - Branch: `feat/disease-ranking` (from `main`), one PR, one commit per layer
-- Status: active
+- Status: active (implemented on `feat/disease-ranking`, PR open; gates in the spec
+  still decide public enablement)
 
 ## Ground rules
 
