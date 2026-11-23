@@ -257,11 +257,15 @@ prepare_disease_index() {
         log_info "Disease ranking uses PHENTRIEVE_DISEASE_INDEX_DIR - skipping index build"
         return 0
     fi
-    if [ -f "$DATA_DIR/disease_index/disease_index.npz" ]; then
+    # With pinned versions the CLI compares them with the existing index and rebuilds
+    # on a mismatch; without pins an existing index is kept.
+    if [ -f "$DATA_DIR/disease_index/disease_index.npz" ] \
+        && [ -z "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ] \
+        && [ -z "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
         log_info "Disease index found: $DATA_DIR/disease_index"
         return 0
     fi
-    log_info "Disease ranking enabled - building disease index in $DATA_DIR/disease_index..."
+    log_info "Disease ranking enabled - preparing disease index in $DATA_DIR/disease_index..."
     local args=(-m phentrieve data prepare-diseases --data-dir "$DATA_DIR")
     if [ -n "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ]; then
         args+=(--hpo-version "$PHENTRIEVE_DISEASE_HPO_VERSION")

@@ -190,3 +190,43 @@ describe('diseaseRanking store', () => {
     expect(store.panelOpen).toBe(false);
   });
 });
+
+describe('diseaseRanking store review fixes', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  it('uses the export vocabulary and fails closed on unknown statuses', () => {
+    const a = (status) => toProfileTerm({ hpo_id: 'HP:1', assertion_status: status }).assertion;
+    for (const s of ['normal', 'excluded', 'negative', 'no', 'denied', 'Negated ']) {
+      expect(a(s)).toBe('negated');
+    }
+    for (const s of ['possible', 'suspected', 'probable', 'unknown', 'something-new']) {
+      expect(a(s)).toBe('uncertain');
+    }
+    for (const s of [undefined, null, '', 'yes', 'positive', 'confirmed', 'Present']) {
+      expect(a(s)).toBe('affirmed');
+    }
+  });
+
+  it('does not request a ranking for excluded-only profiles with the switch on', async () => {
+    const store = useDiseaseRankingStore();
+    store.setIncludeUncertain(true);
+    await store.open([{ hpo_id: 'HP:0001249', assertion_status: 'negated' }]);
+    expect(PhentrieveService.rankDiseases).not.toHaveBeenCalled();
+    expect(store.result).toBeNull();
+  });
+
+  it('asks again after a failed status request', async () => {
+    PhentrieveService.getConfigInfo
+      .mockRejectedValueOnce(new Error('cold start'))
+      .mockResolvedValueOnce({ disease_ranking: { enabled: true, index_ready: true } });
+    const store = useDiseaseRankingStore();
+    await store.checkAvailability();
+    expect(store.available).toBe(false);
+    await store.checkAvailability();
+    expect(store.available).toBe(true);
+    expect(PhentrieveService.getConfigInfo).toHaveBeenCalledTimes(2);
+  });
+});

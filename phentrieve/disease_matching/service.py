@@ -106,10 +106,13 @@ class RankingResult:
     index_info: dict[str, Any] = field(default_factory=dict)
 
 
-def _source_name(flags: int) -> str:
-    if flags & SOURCE_OWN and flags & SOURCE_ORPHA:
+def _source_name(flags: int, own: str) -> str:
+    """Annotation origin; ``own`` is the disease's own source (its ID prefix, lower case)."""
+    if flags & SOURCE_OWN and flags & SOURCE_ORPHA and own != "orpha":
         return "both"
-    return "orpha" if flags & SOURCE_ORPHA else "omim"
+    if flags & SOURCE_ORPHA:
+        return "orpha"
+    return own
 
 
 def _competition_ranks(values: np.ndarray) -> np.ndarray:
@@ -143,6 +146,7 @@ class _Explainer:
 
     def explain(self, d: int) -> Explanation:
         ix = self.ix
+        own = ix.disease_ids[d].split(":")[0].lower()
         terms, freqs, sources = ix.annotations(d)
         matches: list[TermMatch] = []
         unexplained: list[TermMatch] = []
@@ -174,7 +178,7 @@ class _Explainer:
                 shared_label=self._label(shared),
                 match=round(float(values[best] / ix.self_ic[p]), 4),
                 frequency=round(float(freqs[best]), 4),
-                source=_source_name(int(sources[best])),
+                source=_source_name(int(sources[best]), own),
             )
             (matches if item.match >= WEAK_MATCH else unexplained).append(item)
         matches.sort(key=lambda m: -m.match)
@@ -282,9 +286,13 @@ def rank(
             dtype=np.int64,
         )
         row_scores = s[rows].copy()
+        # The disease that gives the folded row its score: the OMIM entry or a twin
+        scored_by = rows.copy()
         for i, d in enumerate(rows.tolist()):
             for o in index.twins.get(d, ()):
-                row_scores[i] = max(row_scores[i], s[o])
+                if s[o] > row_scores[i]:
+                    row_scores[i] = s[o]
+                    scored_by[i] = o
         ranks = _competition_ranks(row_scores)
         order = np.lexsort((rows, -np.round(row_scores, 12)))[:top_k]
         result.total_candidates = len(rows)
@@ -298,7 +306,7 @@ def rank(
                     score=round(float(row_scores[i]), 6),
                     genes=index.disease_genes[d],
                     twins=[index.disease_ids[o] for o in index.twins.get(d, ())],
-                    explanation=explainer.explain(d),
+                    explanation=explainer.explain(int(scored_by[i])),
                 )
             )
         return result
@@ -312,7 +320,9 @@ def rank(
     for i in order.tolist():
         gene = names[i]
         best = genes[gene][1]
-        shown = index.twin_of.get(best, best)
+        # Name the OMIM twin of an ORPHA best only if it is linked to this gene too
+        twin = index.twin_of.get(best)
+        shown = twin if twin is not None and twin in index.gene_diseases[gene] else best
         result.genes.append(
             RankedGene(
                 rank=int(ranks[i]),
@@ -320,7 +330,7 @@ def rank(
                 score=round(float(values[i]), 6),
                 best_disease_id=index.disease_ids[shown],
                 best_disease_label=index.disease_labels[shown],
-                explanation=explainer.explain(shown),
+                explanation=explainer.explain(best),
             )
         )
     return result

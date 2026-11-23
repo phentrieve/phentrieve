@@ -20,7 +20,7 @@ at its shipped setting. In short:
 - **Forward score:** for each present profile term, the best-matching annotation of the
   disease, weighted lightly by how often the disease shows it.
 - **Reverse score:** how many of the disease's frequent features the profile covers.
-- **Total:** `0.55 · forward + 0.45 · reverse`. A gene takes the score of its best disease.
+- **Total:** `0.55 * forward + 0.45 * reverse`. A gene takes the score of its best disease.
 - **Excluded terms** (negated or normal) never change the score. A disease annotated with
   an excluded term, or one of its descendants, gets a conflict note.
 - **Uncertain terms** are not scored unless you switch on "Include uncertain terms". They
@@ -53,6 +53,8 @@ results. Further options:
 
 - `--data-dir` picks another data directory.
 - `--force` downloads the sources again and rebuilds the index.
+- An existing index is kept unless `--force` is given or the requested HPO or MONDO
+  version differs from the one it was built from. Restart the API after a rebuild.
 - `--no-orpha-merge` builds the plain reference index, without the ORPHA merge.
 
 ## Enable it

@@ -67,7 +67,10 @@ class TermMatchAPI(BaseModel):
     shared_label: str
     match: float = Field(..., description="Relative match r(p, d) in [0, 1].")
     frequency: float = Field(..., description="Annotated frequency in [0, 1].")
-    source: Literal["omim", "orpha", "both"]
+    source: str = Field(
+        ...,
+        description="Annotation origin: the disease's own source (omim, orpha, ...) or both.",
+    )
 
 
 class ConflictAPI(BaseModel):

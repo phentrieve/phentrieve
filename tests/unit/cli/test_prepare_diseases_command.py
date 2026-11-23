@@ -91,3 +91,28 @@ def test_failure_exits_with_code_1(tmp_path: Path, mocker) -> None:
     with pytest.raises(typer.Exit) as exc:
         _run(tmp_path)
     assert exc.value.exit_code == 1
+
+
+def test_rebuilds_when_requested_versions_differ(tmp_path: Path, mocker) -> None:
+    mocker.patch("phentrieve.utils.setup_logging_cli")
+    mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    _run(tmp_path)
+    fetch = mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    from phentrieve.cli.data_commands import prepare_disease_index
+    from phentrieve.disease_matching import load_index
+
+    mocker.patch(
+        "phentrieve.disease_matching.index_builder.latest_mondo_version",
+        return_value="v2026-09-01",
+    )
+    prepare_disease_index(
+        data_dir=str(tmp_path), hpo_version="v2026-10-01", mondo_version=None
+    )
+    fetch.assert_called_once()
+    assert load_index(tmp_path / "disease_index").meta["hpo_version"] == "v2026-10-01"

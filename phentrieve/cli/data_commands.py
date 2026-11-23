@@ -133,7 +133,11 @@ def prepare_disease_index(
     """
     from phentrieve.config import HPO_BASE_URL
     from phentrieve.data_processing.hpo_parser import resolve_hpo_version
-    from phentrieve.disease_matching.index import default_index_dir, index_exists
+    from phentrieve.disease_matching.index import (
+        default_index_dir,
+        index_exists,
+        read_index_info,
+    )
     from phentrieve.disease_matching.index_builder import (
         build_index,
         fetch_sources,
@@ -144,10 +148,21 @@ def prepare_disease_index(
     setup_logging_cli(debug=debug)
     index_dir = default_index_dir(data_dir)
     if index_exists(index_dir) and not force:
-        typer.echo(
-            f"Disease index already present in {index_dir} (use --force to rebuild)."
-        )
-        return
+        built = read_index_info(index_dir) or {}
+        stale = [
+            f"{name} {built.get(key)} -> {wanted}"
+            for name, key, wanted in (
+                ("HPO", "hpo_version", hpo_version),
+                ("MONDO", "mondo_version", mondo_version),
+            )
+            if wanted and built.get(key) != wanted
+        ]
+        if not stale:
+            typer.echo(
+                f"Disease index already present in {index_dir} (use --force to rebuild)."
+            )
+            return
+        typer.echo(f"Disease index versions differ ({', '.join(stale)}); rebuilding.")
     try:
         hpo_tag = resolve_hpo_version(hpo_version)
         mondo_tag = mondo_version or latest_mondo_version()

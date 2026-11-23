@@ -153,3 +153,39 @@ def test_config_info_includes_disease_ranking(enabled_client, mocker) -> None:
     status = r.json()["disease_ranking"]
     assert status["enabled"] is True
     assert status["index_ready"] is True
+
+
+def test_failed_load_is_cached_and_reported_not_ready(
+    monkeypatch, tmp_path, mocker
+) -> None:
+    from phentrieve.disease_matching.index import INDEX_ARRAYS_FILENAME
+
+    build_mini().save(tmp_path)
+    path = tmp_path / INDEX_ARRAYS_FILENAME
+    path.write_bytes(path.read_bytes() + b"corrupt")
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_RANKING_ENABLED", True)
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", str(tmp_path))
+    disease_index_state.reset_disease_index()
+    loader = mocker.spy(disease_index_state, "load_index")
+    client = TestClient(create_app())
+    assert client.post("/api/v1/diseases/rank", json=PROFILE).status_code == 503
+    assert client.post("/api/v1/diseases/rank", json=PROFILE).status_code == 503
+    assert loader.call_count == 1  # second request fails fast
+    assert disease_index_state.disease_ranking_status()["index_ready"] is False
+    disease_index_state.reset_disease_index()
+
+
+def test_status_rejects_an_unsupported_index_format(monkeypatch, tmp_path) -> None:
+    import json
+
+    from phentrieve.disease_matching.index import INDEX_INFO_FILENAME
+
+    build_mini().save(tmp_path)
+    info_path = tmp_path / INDEX_INFO_FILENAME
+    info = json.loads(info_path.read_text())
+    info["format_version"] = 999
+    info_path.write_text(json.dumps(info))
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_RANKING_ENABLED", True)
+    monkeypatch.setattr(api_config, "PHENTRIEVE_DISEASE_INDEX_DIR", str(tmp_path))
+    disease_index_state.reset_disease_index()
+    assert disease_index_state.disease_ranking_status()["index_ready"] is False

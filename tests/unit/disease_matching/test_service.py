@@ -178,3 +178,43 @@ def test_ties_share_a_rank(mini_index: DiseaseIndex) -> None:
             assert ranks[i] == ranks[i - 1]
         else:
             assert ranks[i] == i + 1
+
+
+def test_folded_row_is_explained_by_the_disease_that_scored_it(
+    mini_index_plain: DiseaseIndex,
+) -> None:
+    row = next(
+        d
+        for d in rank(mini_index_plain, _p(("HP:0000020", "affirmed"))).diseases
+        if d.disease_id == "OMIM:100001"
+    )
+    # The ORPHA twin scores higher, so its annotations explain the row.
+    assert [(m.profile_id, m.disease_term_id) for m in row.explanation.matches] == [
+        ("HP:0000020", "HP:0000020")
+    ]
+    assert row.explanation.matches[0].source == "orpha"
+    assert row.explanation.annotation_sources == ["orpha"]
+
+
+def test_gene_level_keeps_the_orpha_best_when_the_twin_is_another_genes(
+    mini_index_plain: DiseaseIndex,
+) -> None:
+    import dataclasses
+
+    orpha = mini_index_plain.disease_index["ORPHA:900001"]
+    genes = dict(mini_index_plain.gene_diseases)
+    genes["GENEE"] = [orpha]  # ORPHA entry linked to a gene its OMIM twin is not
+    ix = dataclasses.replace(mini_index_plain, gene_diseases=genes)
+    result = rank(ix, _p(("HP:0000020", "affirmed")), level="gene")
+    by_gene = {g.gene: g for g in result.genes}
+    assert by_gene["GENEE"].best_disease_id == "ORPHA:900001"
+    assert by_gene["GENEA"].best_disease_id == "OMIM:100001"
+    assert by_gene["GENEA"].explanation.matches[0].source == "orpha"
+
+
+def test_orpha_disease_annotations_are_labelled_orpha(mini_index: DiseaseIndex) -> None:
+    result = rank(mini_index, _p(("HP:0000011", "affirmed")))
+    two = next(d for d in result.diseases if d.disease_id == "ORPHA:900002")
+    assert {m.source for m in two.explanation.matches} == {"orpha"}
+    one = next(d for d in result.diseases if d.disease_id == "OMIM:100001")
+    assert {m.source for m in one.explanation.matches} == {"omim"}
