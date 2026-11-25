@@ -1016,3 +1016,51 @@ def test_batched_modifier_mapping_llm_and_safety_net(
     assert finding.evidence_records[0].evidence_text == "hearing loss"
     assert {m.term_id for m in finding.modifiers} == {"HP:0003676", "HP:0012833"}
     assert result.meta.phase_counts["modifier_llm_mapped"] == 2
+
+
+def test_chunk_span_fallback_is_not_carved_into_fake_evidence_text(
+    monkeypatch,
+) -> None:
+    """A ``chunk_span`` fallback must never be trimmed and written back as a quote (#397)."""
+    _patch_guard(monkeypatch)
+    text = "The patient reports mild tremor."
+    provider = _FakeProvider(
+        [
+            LLMGroundedExtractedPhenotypesWithModifiers.model_validate(
+                {
+                    "phenotypes": [
+                        {
+                            "phrase": "tremor",
+                            "evidence_text": None,
+                            "modifiers": ["mild"],
+                            "category": "Abnormal",
+                            "chunk_ids": [1],
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    executor = _FakeToolExecutor(
+        {
+            "tremor": [{"hpo_id": "HP:0001337", "term_name": "Tremor", "score": 0.96}],
+            "mild": [{"hpo_id": "HP:0012825", "term_name": "Mild", "score": 0.96}],
+        }
+    )
+    pipeline = TwoPhaseLLMPipeline(provider=provider, tool_executor=executor)
+    result = pipeline.run(
+        text=text,
+        grounded_chunks=_single_chunk(text),
+        config=LLMPipelineConfig(model="test-model", extract_modifiers=True),
+    )
+
+    finding = result.terms[0]
+    ev = finding.evidence_records[0]
+    assert ev.offset_basis == "chunk_span"
+    assert ev.evidence_text is None
+    assert (ev.start_char, ev.end_char) == (0, len(text))
+    assert len(finding.modifiers) == 1
+    assert finding.modifiers[0].term_id == "HP:0012825"
+    assert [(s.start, s.end, s.text) for s in finding.modifiers[0].segments] == [
+        (text.index("mild"), text.index("mild") + len("mild"), "mild")
+    ]

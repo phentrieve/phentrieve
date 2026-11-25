@@ -3207,11 +3207,17 @@ class TwoPhaseLLMPipeline:
         text: str,
         locator: EvidenceLocator,
     ) -> None:
+        # Only carve a genuinely located evidence span, never a ``chunk_span``
+        # fallback (#397): trimming a whole-chunk fallback and writing
+        # ``text[start:end]`` back into ``evidence_text`` would fabricate a
+        # fake exact quote out of surrounding chunk wording.
         primary_ev = next(
             (
                 ev
                 for ev in finding.evidence_records
-                if ev.start_char is not None and ev.end_char is not None
+                if ev.start_char is not None
+                and ev.end_char is not None
+                and ev.offset_basis != "chunk_span"
             ),
             None,
         )

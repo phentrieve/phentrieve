@@ -96,6 +96,10 @@ def _extract_mentions(finding: Any, canonical_doc: str) -> list[dict[str, Any]]:
     doc_len = len(canonical_doc)
 
     for record in raw_records:
+        # A ``chunk_span`` fallback covers the whole cited chunk rather than a
+        # located mention (#397); do not export it as an exact text mention.
+        if _get_field(record, "offset_basis") == "chunk_span":
+            continue
         start = _get_field(record, "start_char", "start")
         end = _get_field(record, "end_char", "end")
         if not (_is_valid_int(start) and _is_valid_int(end)):

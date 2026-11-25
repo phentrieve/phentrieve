@@ -521,3 +521,42 @@ class TestOntospanExport:
         assert annotations[0]["document_level"] is False
         assert annotations[1]["document_level"] is True
         assert annotations[2]["document_level"] is True
+
+    def test_chunk_span_fallback_exports_as_document_level_not_exact_mention(
+        self,
+    ) -> None:
+        text = "The patient reports mild tremor."
+        result = LLMExtractionResult(
+            terms=[
+                LLMPhenotype(
+                    term_id="HP:0001337",
+                    label="Tremor",
+                    assertion="present",
+                    experiencer="proband",
+                    temporality="current",
+                    evidence_records=[
+                        LLMPhenotypeEvidence(
+                            phrase="tremor",
+                            evidence_text=None,
+                            chunk_ids=[1],
+                            start_char=0,
+                            end_char=len(text),
+                            offset_basis="chunk_span",
+                        )
+                    ],
+                )
+            ],
+            meta=LLMMeta(llm_model="synthetic-model", llm_mode="two_phase"),
+        )
+
+        doc = export_to_ontospan_document(
+            result,
+            text,
+            document_id="case-003",
+            language="en",
+            hpo_version="2026-01-01",
+            phentrieve_version="0.33.0",
+        )
+        ann = doc["annotation_set"]["annotations"][0]
+        assert ann["mentions"] == []
+        assert ann["document_level"] is True
