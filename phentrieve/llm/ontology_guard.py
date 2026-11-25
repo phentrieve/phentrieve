@@ -271,6 +271,9 @@ def check_modifier_term(
     active_profile = profile if profile is not None else get_default_ontology_profile()
     amap = _ancestors_map() if ancestors_map is None else ancestors_map
 
+    if cleaned_id in active_profile.abstract_modifier_terms:
+        return ModifierGuardDecision(accepted=False)
+
     for code, root_id in active_profile.disallowed_modifier_roots.items():
         if is_under_any_root(cleaned_id, (root_id,), amap) is True:
             warning = OntologyWarning(

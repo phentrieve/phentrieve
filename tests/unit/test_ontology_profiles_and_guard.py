@@ -348,6 +348,17 @@ def test_check_modifier_term_accepts_rejects_and_flags_frequency():
     assert d_non_mod.accepted is False
     assert d_non_mod.warnings == ()
 
+    # Abstract container roots (Clinical modifier, Clinical course, Severity, Onset)
+    # are grouping headers rather than clinical modifier values and must be rejected.
+    for abstract_root in ("HP:0012823", "HP:0031797", "HP:0012824", "HP:0003674"):
+        d_abs = ontology_guard.check_modifier_term(
+            abstract_root,
+            profile=HPO_DEFAULT_PROFILE,
+            ancestors_map=_SYNTHETIC_ANCESTORS,
+        )
+        assert d_abs.accepted is False
+        assert d_abs.warnings == ()
+
     d_freq = ontology_guard.check_modifier_term(
         "HP:0040283", profile=HPO_DEFAULT_PROFILE, ancestors_map=_SYNTHETIC_ANCESTORS
     )

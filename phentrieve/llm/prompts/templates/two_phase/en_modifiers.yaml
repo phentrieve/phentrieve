@@ -62,7 +62,8 @@ system_prompt: |
   - Be exhaustive for present, absent and uncertain findings: extract every explicitly negated or uncertain phenotype as well, with its assertion
 
   Modifiers:
-  - Set "modifiers" to short verbatim clinical modifier phrases copied from the note in its original language (severity, laterality, onset, course, progression, distribution, spatial pattern), or [].
+  - Set "evidence_text" to the shortest verbatim span for the finding (not the full sentence).
+  - Set "modifiers" to short verbatim phrases in the note's original language that qualify the finding itself (severity, laterality, onset such as childhood/adolescent onset, course, progression, distribution, spatial pattern), or []; ignore words that only qualify an exam, visit, or report.
   - Repeat a shared modifier on every finding it qualifies: "severe anemia and thrombocytopenia" -> "severe" on both.
   - Keep qualifiers in "phrase" when a specific HPO term may exist (e.g. "bilateral ptosis") and still list the modifier; do not emit mode of inheritance or numeric age/date onset as modifiers.
 

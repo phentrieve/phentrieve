@@ -17,6 +17,7 @@ from phentrieve.modifier_models import CURIE_PATTERN
 __all__ = [
     "HPO_PHENOTYPIC_ABNORMALITY_ROOT",
     "HPO_CLINICAL_MODIFIER_ROOT",
+    "HPO_CLINICAL_COURSE_ROOT",
     "HPO_SEVERITY_ROOT",
     "HPO_ONSET_ROOT",
     "HPO_FREQUENCY_ROOT",
@@ -28,6 +29,7 @@ __all__ = [
 
 HPO_PHENOTYPIC_ABNORMALITY_ROOT = "HP:0000118"
 HPO_CLINICAL_MODIFIER_ROOT = "HP:0012823"
+HPO_CLINICAL_COURSE_ROOT = "HP:0031797"
 HPO_SEVERITY_ROOT = "HP:0012824"
 HPO_ONSET_ROOT = "HP:0003674"
 HPO_FREQUENCY_ROOT = "HP:0040279"
@@ -101,6 +103,7 @@ class OntologyProfile(BaseModel, frozen=True):
     roots: OntologyRootsConfig = Field(default_factory=OntologyRootsConfig)
     exclusive_modifier_classes: dict[str, str] = Field(default_factory=dict)
     disallowed_modifier_roots: dict[str, str] = Field(default_factory=dict)
+    abstract_modifier_terms: tuple[str, ...] = ()
     phenopacket_slot_roots: dict[str, str] = Field(default_factory=dict)
 
 
@@ -119,6 +122,12 @@ HPO_DEFAULT_PROFILE = OntologyProfile(
     disallowed_modifier_roots={
         "cohort_frequency": HPO_FREQUENCY_ROOT,
     },
+    abstract_modifier_terms=(
+        HPO_CLINICAL_MODIFIER_ROOT,
+        HPO_CLINICAL_COURSE_ROOT,
+        HPO_SEVERITY_ROOT,
+        HPO_ONSET_ROOT,
+    ),
     phenopacket_slot_roots={
         "severity": HPO_SEVERITY_ROOT,
         "onset": HPO_ONSET_ROOT,

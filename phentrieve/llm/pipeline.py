@@ -19,6 +19,7 @@ from phentrieve.llm.config import (
     DEFAULT_GROUNDED_PHASE1_TRUNCATION_RETRY_OUTPUT_TOKENS,
     DEFAULT_LLM_LANGUAGE,
     DEFAULT_LLM_MAPPING_BATCH_SIZE,
+    DEFAULT_LLM_MODIFIER_MAPPING_BATCH_SIZE,
     DEFAULT_LOCAL_MATCH_THRESHOLD,
     DEFAULT_MAX_UNIQUE_CANDIDATES,
     DEFAULT_MIN_UNIQUE_CANDIDATES,
@@ -364,6 +365,7 @@ class TwoPhaseLLMPipeline:
         max_unique_candidates: int = DEFAULT_MAX_UNIQUE_CANDIDATES,
         local_match_threshold: float = DEFAULT_LOCAL_MATCH_THRESHOLD,
         mapping_batch_size: int = DEFAULT_LLM_MAPPING_BATCH_SIZE,
+        modifier_mapping_batch_size: int = DEFAULT_LLM_MODIFIER_MAPPING_BATCH_SIZE,
     ) -> None:
         self.provider = provider
         self.tool_executor = tool_executor or ToolExecutor()
@@ -373,6 +375,7 @@ class TwoPhaseLLMPipeline:
         self.max_unique_candidates = max_unique_candidates
         self.local_match_threshold = local_match_threshold
         self.mapping_batch_size = max(int(mapping_batch_size), 1)
+        self.modifier_mapping_batch_size = max(int(modifier_mapping_batch_size), 1)
 
     def run(
         self,
@@ -3069,12 +3072,14 @@ class TwoPhaseLLMPipeline:
             outcome.mapping_ran = True
             modifier_mapping_prompt = (
                 get_batch_modifier_mapping_prompt(language)
-                if len(deferred_tasks) > 1 and self.mapping_batch_size > 1
+                if len(deferred_tasks) > 1 and self.modifier_mapping_batch_size > 1
                 else get_modifier_mapping_prompt(language)
             )
             phase2b_llm_start = time.perf_counter()
-            for start in range(0, len(deferred_tasks), self.mapping_batch_size):
-                batch = deferred_tasks[start : start + self.mapping_batch_size]
+            for start in range(
+                0, len(deferred_tasks), self.modifier_mapping_batch_size
+            ):
+                batch = deferred_tasks[start : start + self.modifier_mapping_batch_size]
                 mapping_response, batch_usage = run_modifier_mapping_batch(
                     provider=self.provider,
                     batch=batch,
