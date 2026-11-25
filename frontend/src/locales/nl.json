@@ -191,6 +191,7 @@
       "llmModes": {
         "twoPhase": "Extractie in twee fasen"
       },
+      "extractModifiers": "Klinische modifiers extraheren",
       "llmDisclosure": "LLM-extractie kan ingediende tekst laten verwerken door een externe AI-aanbieder die door de beheerder van de dienst is ingesteld. Gebruik alleen onderzoekstekst; voer geen direct identificerende gegevens in.",
       "chunkingStrategy": "Opdelingsstrategie",
       "windowSize": "Venstergrootte (tokens)",
@@ -213,6 +214,7 @@
       "embeddingModel": "Selecteer het AI-model dat tekst omzet in embeddings",
       "similarityThreshold": "Stel de minimale gelijkenisscore in die resultaten moeten halen",
       "includeDetails": "HPO-termdefinities en synoniemen opnemen in zoekresultaten (om prestatieredenen beperkt tot 20 resultaten)",
+      "extractModifiers": "HPO klinische modifiers (zoals ernst, aanvang of lateraliteit) bij bevindingen extraheren in LLM-modus",
       "language": "Selecteer de taal voor het verwerken van zoekopdrachten en voor assertiedetectie",
       "subjectId": "Voer een ID in voor de deelnemer",
       "sex": "Selecteer het biologische geslacht van de deelnemer",
@@ -235,7 +237,8 @@
       "similarityThresholdDescription": "Pas de minimale gelijkenisdrempel aan. Huidige waarde: {similarityThreshold}",
       "selectQueryLanguage": "Zoektaal selecteren",
       "queryLanguageDescription": "Kies de taal voor het verwerken van zoekopdrachten. Huidige selectie: {selectedLanguage}",
-      "includeDetailsSwitch": "HPO-termdefinities en synoniemen opnemen"
+      "includeDetailsSwitch": "HPO-termdefinities en synoniemen opnemen",
+      "extractModifiersSwitch": "Klinische modifiers in LLM-modus extraheren"
     },
     "form": {
       "queryPill": "Zoekopdracht",
@@ -345,6 +348,8 @@
     "hideDetails": "Details verbergen",
     "definitionLabel": "Definitie",
     "synonymsLabel": "Synoniemen",
+    "modifiersLabel": "Modifiers",
+    "warningsLabel": "Extractiewaarschuwingen",
     "textProcess": {
       "title": "Analyse van volledige tekst",
       "chunksTitle": "Verwerkte fragmenten en HPO-termen per fragment",

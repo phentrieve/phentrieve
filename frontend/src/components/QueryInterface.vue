@@ -212,6 +212,7 @@ defineOptions({
 const DEFAULT_TEXT_PROCESS_LLM_OPTIONS = Object.freeze({
   llmModel: 'gemini-3.1-flash-lite',
   llmMode: 'two_phase',
+  extractModifiers: false,
 });
 const REDACTED_QUERY_PLACEHOLDER = '[redacted]';
 

@@ -90,6 +90,11 @@
           :title="term.name"
           :subtitle="relatedFindingDetail(term)"
         >
+          <ModifierChips
+            v-if="term.modifiers && term.modifiers.length > 0"
+            :modifiers="term.modifiers"
+            class="mt-1"
+          />
           <template v-if="isExcludedFinding(term)" #append>
             <v-chip size="x-small" color="warning" variant="tonal" label>
               {{ $t('queryInterface.fullTextReceipt.relatedFindingAbsent') }}
@@ -105,6 +110,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ResultItem from './ResultItem.vue';
+import ModifierChips from './ModifierChips.vue';
 import { useFullTextCuration } from '../composables/useFullTextCuration';
 
 defineOptions({
@@ -233,10 +239,28 @@ function parseScoreValue(value) {
   return null;
 }
 
+function resolveTermModifiers(term) {
+  if (Array.isArray(term.modifiers) && term.modifiers.length > 0) {
+    return term.modifiers;
+  }
+  const details = detailsByHpoId.value.get(term.hpo_id);
+  return Array.isArray(details?.modifiers) ? details.modifiers : [];
+}
+
+function resolveTermWarnings(term) {
+  if (Array.isArray(term.warnings) && term.warnings.length > 0) {
+    return term.warnings;
+  }
+  const details = detailsByHpoId.value.get(term.hpo_id);
+  return Array.isArray(details?.warnings) ? details.warnings : [];
+}
+
 function mapTextProcessPhenotypeToResult(term) {
   const confidence = parseScoreValue(term.confidence);
   const similarity = parseScoreValue(term.similarity);
   const details = detailsByHpoId.value.get(term.hpo_id) || {};
+  const modifiers = resolveTermModifiers(term);
+  const warnings = resolveTermWarnings(term);
 
   return {
     hpo_id: term.hpo_id,
@@ -248,6 +272,8 @@ function mapTextProcessPhenotypeToResult(term) {
     definition: details.definition || '',
     synonyms: Array.isArray(details.synonyms) ? details.synonyms : [],
     assertion_status: normalizeAssertionStatus(term.status, term.excluded),
+    ...(modifiers.length > 0 ? { modifiers } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -275,10 +301,12 @@ function normalizeAssertionStatus(status, excluded = false) {
 }
 
 function normalizeTextProcessPhenotype(term) {
+  const modifiers = resolveTermModifiers(term);
   return {
     hpo_id: term.hpo_id,
     label: term.name,
     assertion_status: normalizeAssertionStatus(term.status, term.excluded),
+    ...(modifiers.length > 0 ? { modifiers } : {}),
   };
 }
 

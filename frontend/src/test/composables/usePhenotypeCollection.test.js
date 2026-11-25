@@ -23,7 +23,10 @@ vi.mock('../../composables/useFileDownload', () => ({
   }),
 }));
 
-import { usePhenotypeCollection } from '../../composables/usePhenotypeCollection';
+import {
+  usePhenotypeCollection,
+  buildPhenopacketExportPayload,
+} from '../../composables/usePhenotypeCollection';
 import { useConversationStore } from '../../stores/conversation';
 
 describe('usePhenotypeCollection', () => {
@@ -182,6 +185,102 @@ describe('usePhenotypeCollection', () => {
       exportAsPhenopacket();
       const [phenopacket] = downloadJsonMock.mock.calls[0];
       expect(phenopacket.phenotypicFeatures.map((f) => f.type.id)).toEqual(['HP:0001250']);
+    });
+
+    it('preserves modifiers on collected phenotypes and includes them in exported Phenopacket features', () => {
+      const modifiers = [
+        {
+          term_id: 'HP:0012828',
+          label: 'Severe',
+          segments: [{ start: 0, end: 6, text: 'severe' }],
+          source: 'llm',
+        },
+        {
+          term_id: 'HP:0003593',
+          label: 'Infantile onset',
+          source: 'rule',
+        },
+      ];
+      const store = useConversationStore();
+      const { addPhenotype, exportAsPhenopacket } = usePhenotypeCollection();
+
+      addPhenotype({
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        assertion_status: 'affirmed',
+        modifiers,
+      });
+      addPhenotype({
+        hpo_id: 'HP:0001251',
+        label: 'Ataxia',
+        assertion_status: 'affirmed',
+      });
+
+      expect(store.collectedPhenotypes[0].modifiers).toEqual(modifiers);
+      expect(store.collectedPhenotypes[1]).not.toHaveProperty('modifiers');
+
+      exportAsPhenopacket();
+      const [phenopacket] = downloadJsonMock.mock.calls[0];
+      expect(phenopacket.phenotypicFeatures[0]).toEqual({
+        type: { id: 'HP:0001250', label: 'Seizure' },
+        excluded: false,
+        modifiers: [
+          { id: 'HP:0012828', label: 'Severe' },
+          { id: 'HP:0003593', label: 'Infantile onset' },
+        ],
+      });
+      expect(phenopacket.phenotypicFeatures[1]).toEqual({
+        type: { id: 'HP:0001251', label: 'Ataxia' },
+        excluded: false,
+      });
+      expect(phenopacket.phenotypicFeatures[1]).not.toHaveProperty('modifiers');
+    });
+  });
+
+  describe('buildPhenopacketExportPayload', () => {
+    it('includes non-empty modifiers on serialized phenotypes and omits them when empty', () => {
+      const modifiers = [
+        {
+          term_id: 'HP:0012832',
+          label: 'Bilateral',
+          segments: [{ start: 4, end: 13, text: 'bilateral' }],
+          source: 'llm',
+        },
+      ];
+      const payload = buildPhenopacketExportPayload({
+        caseId: 'case-42',
+        phenotypes: [
+          {
+            hpo_id: 'HP:0000365',
+            label: 'Hearing impairment',
+            assertion_status: 'affirmed',
+            modifiers,
+          },
+          {
+            hpo_id: 'HP:0001251',
+            label: 'Ataxia',
+            assertion_status: 'negated',
+            modifiers: [],
+          },
+        ],
+      });
+
+      expect(payload).toEqual({
+        case_id: 'case-42',
+        phenotypes: [
+          {
+            hpo_id: 'HP:0000365',
+            label: 'Hearing impairment',
+            assertion_status: 'affirmed',
+            modifiers,
+          },
+          {
+            hpo_id: 'HP:0001251',
+            label: 'Ataxia',
+            assertion_status: 'negated',
+          },
+        ],
+      });
     });
   });
 });

@@ -307,6 +307,12 @@ export function seedAnnotationsFromResponse({ note, response }) {
       spans,
       origin: 'auto',
       confidence,
+      ...(Array.isArray(term.modifiers) && term.modifiers.length > 0
+        ? { modifiers: term.modifiers }
+        : {}),
+      ...(Array.isArray(term.warnings) && term.warnings.length > 0
+        ? { warnings: term.warnings }
+        : {}),
     };
   });
 
@@ -456,6 +462,12 @@ export function deriveFindingsFromAnnotations(annotations) {
         status: ann.status,
         confidence: ann.confidence ?? null,
         origin: ann.origin,
+        ...(Array.isArray(ann.modifiers) && ann.modifiers.length > 0
+          ? { modifiers: ann.modifiers }
+          : {}),
+        ...(Array.isArray(ann.warnings) && ann.warnings.length > 0
+          ? { warnings: ann.warnings }
+          : {}),
       });
     } else if (ann.origin === 'manual') {
       existing.origin = 'manual';

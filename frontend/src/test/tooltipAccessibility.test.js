@@ -7,6 +7,8 @@ const tooltipFiles = [
   'src/components/AdvancedOptionsPanel.vue',
   'src/components/AggregatedTermsView.vue',
   'src/components/ConversationSettings.vue',
+  'src/components/FindingWarningsIndicator.vue',
+  'src/components/ModifierChips.vue',
   'src/components/PhenotypeCollectionPanel.vue',
   'src/components/QueryInterface.vue',
   'src/components/ResultItem.vue',
