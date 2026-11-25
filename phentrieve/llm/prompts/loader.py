@@ -30,6 +30,9 @@ USER_TEMPLATES_DIR = Path.home() / ".phentrieve" / "prompts"
 TOOL_TERM_VARIANT = "term_search"
 TOOL_TEXT_VARIANT = "text_process"
 MAPPING_BATCH_VARIANT = "mapping_batch"
+MODIFIERS_EXTRACTION_VARIANT = "modifiers"
+MODIFIER_MAPPING_VARIANT = "modifier_mapping"
+MODIFIER_MAPPING_BATCH_VARIANT = "modifier_mapping_batch"
 PLACEHOLDER_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 DOCUMENT_BOUNDARY_MODES = {"direct_text", "tool_guided", "postprocess"}
 SAFETY_INSTRUCTION_MODES = DOCUMENT_BOUNDARY_MODES | {"two_phase"}
@@ -243,6 +246,38 @@ def get_batch_mapping_prompt(language: str = DEFAULT_LLM_LANGUAGE) -> PromptTemp
         AnnotationMode.TWO_PHASE,
         DEFAULT_LLM_LANGUAGE,
         variant=MAPPING_BATCH_VARIANT,
+    )
+    return replace(template, language=language)
+
+
+def get_modifier_extraction_prompt(
+    language: str = DEFAULT_LLM_LANGUAGE,
+) -> PromptTemplate:
+    return load_prompt_template(
+        AnnotationMode.TWO_PHASE,
+        language,
+        variant=MODIFIERS_EXTRACTION_VARIANT,
+    )
+
+
+def get_modifier_mapping_prompt(
+    language: str = DEFAULT_LLM_LANGUAGE,
+) -> PromptTemplate:
+    template = load_prompt_template(
+        AnnotationMode.TWO_PHASE,
+        DEFAULT_LLM_LANGUAGE,
+        variant=MODIFIER_MAPPING_VARIANT,
+    )
+    return replace(template, language=language)
+
+
+def get_batch_modifier_mapping_prompt(
+    language: str = DEFAULT_LLM_LANGUAGE,
+) -> PromptTemplate:
+    template = load_prompt_template(
+        AnnotationMode.TWO_PHASE,
+        DEFAULT_LLM_LANGUAGE,
+        variant=MODIFIER_MAPPING_BATCH_VARIANT,
     )
     return replace(template, language=language)
 

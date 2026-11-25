@@ -40,8 +40,9 @@ def incomplete_extraction_signal(observability: Any) -> dict[str, Any]:
 def phase1_extracted_trace_items(
     extracted: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return [
-        {
+    items: list[dict[str, Any]] = []
+    for item in extracted:
+        trace_item: dict[str, Any] = {
             "phrase": str(item["phrase"]),
             "category": normalize_category(str(item["category"])),
             "chunk_ids": list(item.get("chunk_ids", [])),
@@ -49,8 +50,10 @@ def phase1_extracted_trace_items(
             "actionable": normalize_category(str(item["category"]))
             in ACTIONABLE_CATEGORIES,
         }
-        for item in extracted
-    ]
+        if "modifiers" in item:
+            trace_item["modifiers"] = list(item.get("modifiers") or [])
+        items.append(trace_item)
+    return items
 
 
 def build_phase1_attempt_trace(

@@ -47,6 +47,8 @@ _QUOTED_LINE_BREAK_HYPHEN = re.compile(r"(?<=\w)- (?=\w)")
 
 # Separators the phase-1 chunk index shows after the chunk they follow.
 _SEPARATORS = " \t\r\n.,;:!?)]-+"
+# Separators stripped when trimming a carved modifier from a finding span edge.
+_CARVE_SEPARATORS = " \t\r\n,;:-"
 # Dropped text up to here belongs to the chunk before it ("<finding>: no").
 _LINE_OR_SENTENCE_END = re.compile(r"[\r\n]|[.!?](?=\s|$)")
 
@@ -221,6 +223,42 @@ class EvidenceLocator:
             return None
         return start + starts[position], start + ends[position + len(needle) - 1]
 
+    def _find_all(self, evidence: str, start: int, end: int) -> list[tuple[int, int]]:
+        """All matches of ``evidence`` lying within document[start:end]."""
+        needle = _normalized(evidence.strip())[0]
+        if not needle:
+            return []
+        region = self._normalized_regions.get((start, end))
+        if region is None:
+            region = _normalized(self._document[start:end])
+            self._normalized_regions[(start, end)] = region
+        haystack, starts, ends = region
+
+        def _collect(pattern: str) -> list[tuple[int, int]]:
+            if not pattern:
+                return []
+            spans: list[tuple[int, int]] = []
+            pos = 0
+            while pos <= len(haystack) - len(pattern):
+                found = haystack.find(pattern, pos)
+                if found == -1:
+                    break
+                span = (
+                    start + starts[found],
+                    start + ends[found + len(pattern) - 1],
+                )
+                if not spans or spans[-1] != span:
+                    spans.append(span)
+                pos = found + 1
+            return spans
+
+        matches = _collect(needle)
+        if not matches:
+            collapsed = _QUOTED_LINE_BREAK_HYPHEN.sub("", needle)
+            if collapsed != needle:
+                matches = _collect(collapsed)
+        return matches
+
     def locate(
         self, evidence_text: str | None, chunk_ids: Sequence[int]
     ) -> EvidenceSpan:
@@ -254,6 +292,149 @@ class EvidenceLocator:
         return EvidenceSpan(
             chunk_spans[run[0]][0], chunk_spans[run[-1]][1], "chunk_span"
         )
+
+    def locate_nearest(
+        self,
+        evidence_text: str | None,
+        chunk_ids: Sequence[int],
+        *,
+        anchor_span: tuple[int, int] | None = None,
+        include_neighbors: bool = True,
+    ) -> EvidenceSpan:
+        """Locate ``evidence_text`` verbatim, preferring the match nearest ``anchor_span``.
+
+        Searches all occurrences in the cited chunks (then hulls of adjacent
+        cited chunks, then immediate neighbor chunks when ``include_neighbors``
+        is True). Unlike ``locate()``, never falls back to ``chunk_span`` so a
+        modifier quote that cannot be found verbatim stays ``unresolved``.
+        """
+        if not evidence_text or not evidence_text.strip():
+            return EvidenceSpan(None, None, "unresolved")
+
+        chunk_spans = self._chunk_spans
+        ids = [
+            c
+            for c in sorted(set(chunk_ids))
+            if c in chunk_spans and is_located(*chunk_spans[c])
+        ]
+        if not ids:
+            return EvidenceSpan(None, None, "unresolved")
+
+        regions = {c: self._search_spans.get(c, chunk_spans[c]) for c in ids}
+        matches: list[tuple[int, int, OffsetBasis]] = []
+        seen_spans: set[tuple[int, int]] = set()
+
+        def _add_matches(
+            found_spans: Sequence[tuple[int, int]], basis: OffsetBasis
+        ) -> None:
+            for span_start, span_end in found_spans:
+                if (span_start, span_end) not in seen_spans:
+                    seen_spans.add((span_start, span_end))
+                    matches.append((span_start, span_end, basis))
+
+        for chunk_id in ids:
+            _add_matches(
+                self._find_all(evidence_text, *regions[chunk_id]),
+                "evidence_in_chunk",
+            )
+
+        if not matches:
+            for run in _adjacent_runs(ids):
+                if len(run) < 2:
+                    continue
+                hull = (
+                    min(regions[c][0] for c in run),
+                    max(regions[c][1] for c in run),
+                )
+                _add_matches(
+                    self._find_all(evidence_text, *hull),
+                    "evidence_in_chunk_hull",
+                )
+
+        if not matches and include_neighbors:
+            cited_set = set(ids)
+            neighbor_ids = [
+                cid
+                for cid in (min(ids) - 1, max(ids) + 1)
+                if cid in chunk_spans
+                and cid not in cited_set
+                and is_located(*chunk_spans[cid])
+            ]
+            for cid in neighbor_ids:
+                region = self._search_spans.get(cid, chunk_spans[cid])
+                _add_matches(
+                    self._find_all(evidence_text, *region),
+                    "evidence_in_chunk",
+                )
+
+        if not matches:
+            return EvidenceSpan(None, None, "unresolved")
+
+        if anchor_span is None or len(matches) == 1:
+            best = matches[0]
+            return EvidenceSpan(best[0], best[1], best[2])
+
+        a_start, a_end = anchor_span
+
+        def _distance_key(entry: tuple[int, int, OffsetBasis]) -> tuple[int, int, int]:
+            m_start, m_end, _ = entry
+            if m_end <= a_start:
+                gap = a_start - m_end
+            elif m_start >= a_end:
+                gap = m_start - a_end
+            else:
+                gap = 0
+            center_distance = abs((m_start + m_end) - (a_start + a_end))
+            return (gap, center_distance, m_start)
+
+        best = min(matches, key=_distance_key)
+        return EvidenceSpan(best[0], best[1], best[2])
+
+
+def _is_word_boundary(document: str, pos: int) -> bool:
+    if pos <= 0 or pos >= len(document):
+        return True
+    return not (document[pos - 1].isalnum() and document[pos].isalnum())
+
+
+def carve_modifier_span(
+    document: str,
+    finding_span: tuple[int, int],
+    modifier_span: tuple[int, int],
+) -> tuple[tuple[int, int], bool]:
+    """Enforce disjoint finding and modifier spans (A80/A101).
+
+    Returns ``(updated_finding_span, keep_modifier_segment)``:
+    - No overlap: keeps both spans untouched and returns ``True``.
+    - Leading-edge overlap on a word boundary: trims the finding's leading edge
+      past the modifier and adjacent separators, returning ``True``.
+    - Trailing-edge overlap on a word boundary: trims the finding's trailing
+      edge before the modifier and adjacent separators, returning ``True``.
+    - Interior overlap, full coverage, or mid-word split: leaves the finding
+      span intact and returns ``False`` so the caller leaves
+      ``modifier.segments = []``.
+    """
+    f_start, f_end = finding_span
+    m_start, m_end = modifier_span
+
+    if m_end <= f_start or m_start >= f_end:
+        return finding_span, True
+
+    if m_start <= f_start < m_end < f_end and _is_word_boundary(document, m_end):
+        new_start = m_end
+        while new_start < f_end and document[new_start] in _CARVE_SEPARATORS:
+            new_start += 1
+        if new_start < f_end:
+            return (new_start, f_end), True
+
+    if f_start < m_start < f_end <= m_end and _is_word_boundary(document, m_start):
+        new_end = m_start
+        while new_end > f_start and document[new_end - 1] in _CARVE_SEPARATORS:
+            new_end -= 1
+        if f_start < new_end:
+            return (f_start, new_end), True
+
+    return finding_span, False
 
 
 def locate_evidence(

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 import threading
 import time
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from phentrieve.llm.config import (
@@ -30,11 +32,19 @@ from phentrieve.llm.config import (
     NEGATED_ASSERTION,
     PRESENT_ASSERTION,
 )
-from phentrieve.llm.evidence_offsets import EvidenceLocator, rendered_regions
+from phentrieve.llm.evidence_offsets import (
+    EvidenceLocator,
+    carve_modifier_span,
+    rendered_regions,
+)
 from phentrieve.llm.ontology_guard import (
+    check_finding_term,
+    check_modifier_term,
     guard_available,
     is_non_phenotypic_abnormality,
     load_guard_map,
+    term_ids_under_roots,
+    validate_finding_modifiers,
 )
 from phentrieve.llm.pipeline_phase1 import (
     ACTIONABLE_CATEGORIES,
@@ -47,6 +57,9 @@ from phentrieve.llm.pipeline_phase1 import (
 )
 from phentrieve.llm.pipeline_phase1 import (
     normalize_category as _normalize_category,
+)
+from phentrieve.llm.pipeline_phase1 import (
+    normalize_modifiers as _normalize_modifiers,
 )
 from phentrieve.llm.pipeline_phase1 import (
     normalized_evidence_text as _normalized_evidence_text,
@@ -77,14 +90,18 @@ from phentrieve.llm.pipeline_phase1 import (
 )
 from phentrieve.llm.pipeline_phase2 import (
     CATEGORY_TO_ASSERTION,
+    DEFAULT_MAX_MODIFIER_CANDIDATES,
     build_grounded_context,
     deduplicate_terms,
     extract_first_result_list,
+    finding_already_expresses_modifier,
     hybrid_select_candidates,
     local_match,
+    normalize_mapping_phrase_key,
     phenotype_from_candidate,
     prepare_retrieval_queries,
     run_mapping_batch,
+    run_modifier_mapping_batch,
     select_candidate_ids,
 )
 from phentrieve.llm.pipeline_phase2 import (
@@ -133,7 +150,10 @@ from phentrieve.llm.preprocessing import build_extraction_groups
 from phentrieve.llm.prompts.loader import (
     PromptTemplate,
     get_batch_mapping_prompt,
+    get_batch_modifier_mapping_prompt,
     get_mapping_prompt,
+    get_modifier_extraction_prompt,
+    get_modifier_mapping_prompt,
     get_prompt,
 )
 from phentrieve.llm.provider import ToolExecutor
@@ -143,8 +163,10 @@ from phentrieve.llm.types import (
     GroundedChunk,
     LLMBatchMappingSelections,
     LLMExtractedPhenotypes,
+    LLMExtractedPhenotypesWithModifiers,
     LLMExtractionResult,
     LLMGroundedExtractedPhenotypes,
+    LLMGroundedExtractedPhenotypesWithModifiers,
     LLMMappingSelection,
     LLMMeta,
     LLMPhenotype,
@@ -153,6 +175,12 @@ from phentrieve.llm.types import (
     Phase1Mode,
 )
 from phentrieve.llm.utils import token_sort_similarity
+from phentrieve.modifier_models import Modifier, ModifierSegment, OntologyWarning
+from phentrieve.ontology_profiles import (
+    HPO_PHENOTYPIC_ABNORMALITY_ROOT,
+    OntologyProfile,
+    get_default_ontology_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +228,90 @@ class _ItemResolutionOutcome:
     phase2b_local_trace: dict[str, Any]
     phase2b_llm_trace: dict[str, Any] | None
     mapping_ran: bool
+    raw_modifiers_by_phenotype: dict[int, list[str]] = field(default_factory=dict)
+
+
+@dataclass
+class _ModifierResolutionOutcome:
+    phase2a_seconds: float = 0.0
+    phase2b_local_seconds: float = 0.0
+    phase2b_llm_seconds: float = 0.0
+    modifier_phrases: int = 0
+    local_matches: int = 0
+    llm_mapped: int = 0
+    suppressed_double_encoding: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    token_usage: dict[str, int] = field(default_factory=dict)
+    request_count: int = 0
+    phase2b_llm_requests: int = 0
+    mapping_ran: bool = False
+    trace: dict[str, Any] = field(default_factory=dict)
+
+
+def _supports_kwarg(fn: Any, kwarg: str) -> bool:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    if kwarg in sig.parameters:
+        return True
+    return any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values()
+    )
+
+
+def _append_unique_warnings(
+    target: LLMPhenotype, warnings: Sequence[OntologyWarning]
+) -> None:
+    if not warnings:
+        return
+    seen = {
+        (warning.code, warning.term_id, warning.message) for warning in target.warnings
+    }
+    for warning in warnings:
+        key = (warning.code, warning.term_id, warning.message)
+        if key not in seen:
+            seen.add(key)
+            target.warnings.append(warning.model_copy(deep=True))
+
+
+def _is_accepted_finding_candidate(
+    hpo_id: str,
+    *,
+    profile: OntologyProfile,
+    guard_map: Mapping[str, frozenset[str]],
+) -> bool:
+    """Check whether ``hpo_id`` is eligible as a finding candidate.
+
+    Delegates to ``is_non_phenotypic_abnormality`` for the default HPO
+    Phenotypic abnormality root so callers/tests monkeypatching that symbol
+    retain identical behavior; uses ``check_finding_term`` for custom or
+    unrestricted ``finding_roots``.
+    """
+    if profile.roots.finding_roots == (HPO_PHENOTYPIC_ABNORMALITY_ROOT,):
+        return not is_non_phenotypic_abnormality(hpo_id, guard_map)
+    return check_finding_term(hpo_id, profile=profile, ancestors_map=guard_map).accepted
+
+
+def _build_evidence_locator(
+    text: str, grounded_chunks: list[dict[str, Any]]
+) -> EvidenceLocator:
+    chunk_spans: dict[int, tuple[int, int]] = {}
+    search_spans: dict[int, tuple[int, int]] = {}
+    for region in rendered_regions(
+        text,
+        [(chunk.get("start_char"), chunk.get("end_char")) for chunk in grounded_chunks],
+    ):
+        chunk = grounded_chunks[region.index]
+        chunk_id = int(chunk["chunk_id"])
+        chunk_spans[chunk_id] = (region.chunk_start, region.chunk_end)
+        search_spans[chunk_id] = (
+            (region.start, region.end)
+            if chunk.get("prompt_text")
+            else (region.chunk_start, region.chunk_end)
+        )
+    return EvidenceLocator(text, chunk_spans, search_spans=search_spans)
 
 
 def _record_secondary_outcome(
@@ -279,12 +391,20 @@ class TwoPhaseLLMPipeline:
             )
 
         language = config.language or DEFAULT_LLM_LANGUAGE
-        extraction_prompt = get_prompt(mode, language)
+        extract_modifiers = bool(config.extract_modifiers)
+        profile = config.ontology_profile or get_default_ontology_profile()
+        guard_map = load_guard_map()
+        extraction_prompt = (
+            get_modifier_extraction_prompt(language)
+            if extract_modifiers
+            else get_prompt(mode, language)
+        )
         logger.debug(
-            "Phase 1: extracting phenotype phrases (mode=%s, language=%s, text_chars=%d)",
+            "Phase 1: extracting phenotype phrases (mode=%s, language=%s, text_chars=%d, extract_modifiers=%s)",
             mode.value,
             language,
             len(text),
+            extract_modifiers,
         )
         phase1_initial_mode = self._resolve_initial_phase1_mode(
             extraction_groups=extraction_groups
@@ -317,6 +437,7 @@ class TwoPhaseLLMPipeline:
                     extraction_groups=current_extraction_groups,
                     extraction_prompt=extraction_prompt,
                     capture_phase1_debug=config.capture_phase1_debug,
+                    extract_modifiers=extract_modifiers,
                 )
                 phase1_usage = _sum_usage_dicts(phase1_usage, attempt_phase1_usage)
                 phase1_request_count += attempt_phase1_request_count
@@ -563,6 +684,7 @@ class TwoPhaseLLMPipeline:
             )
         resolved_family: list[LLMPhenotype] = []
         resolved_other_person: list[LLMPhenotype] = []
+        raw_modifiers_by_phenotype: dict[int, list[str]] = {}
         if actionable:
             # Proband path: merge the outcome into the CANONICAL meta keys so the
             # result stays byte-identical to the pre-B2 inline block. The gated
@@ -572,8 +694,13 @@ class TwoPhaseLLMPipeline:
                 actionable,
                 grounded_chunks=grounded_chunks,
                 language=language,
+                profile=profile,
+                guard_map=guard_map,
             )
             resolved_terms.extend(proband_outcome.resolved)
+            raw_modifiers_by_phenotype.update(
+                proband_outcome.raw_modifiers_by_phenotype
+            )
             phase_timings["phase2a_seconds"] = proband_outcome.phase2a_seconds
             phase_timings["phase2b_local_seconds"] = (
                 proband_outcome.phase2b_local_seconds
@@ -625,8 +752,11 @@ class TwoPhaseLLMPipeline:
                 items,
                 grounded_chunks=grounded_chunks,
                 language=language,
+                profile=profile,
+                guard_map=guard_map,
             )
             resolved_sink.extend(outcome.resolved)
+            raw_modifiers_by_phenotype.update(outcome.raw_modifiers_by_phenotype)
             prompt_tokens_total += outcome.prompt_tokens
             completion_tokens_total += outcome.completion_tokens
             token_usage_total = _sum_usage_dicts(token_usage_total, outcome.token_usage)
@@ -638,6 +768,14 @@ class TwoPhaseLLMPipeline:
                 phase_timings=phase_timings,
                 phase_counts=phase_counts,
                 phase_request_counts=phase_request_counts,
+            )
+
+        if actionable or family_items or other_person_items:
+            self._check_index_roots_compatibility(
+                language=language,
+                profile=profile,
+                guard_map=guard_map,
+                include_modifiers=extract_modifiers,
             )
 
         # B3: map each resolved proband finding's negated qualifier Y (the
@@ -657,6 +795,8 @@ class TwoPhaseLLMPipeline:
                 resolved_terms=resolved_terms,
                 grounded_chunks=grounded_chunks,
                 language=language,
+                profile=profile,
+                guard_map=guard_map,
             )
         except LLMPipelinePhaseError as exc:
             logger.warning(
@@ -695,24 +835,101 @@ class TwoPhaseLLMPipeline:
         all_terms = (
             len(proband_terms) + len(resolved_family) + len(resolved_other_person)
         )
+        guard_stats: dict[str, int] = {}
         guarded_terms, guarded_family, guarded_other_person, dropped_terms = (
             self._apply_ontology_guard(
-                proband_terms, resolved_family, resolved_other_person
+                proband_terms,
+                resolved_family,
+                resolved_other_person,
+                profile=profile,
+                guard_map=guard_map,
+                extract_modifiers=extract_modifiers,
+                text=text,
+                stats=guard_stats,
             )
         )
+        converted_modifier_findings = guard_stats.get("converted_modifier_findings", 0)
         # Counted and traced, so lost findings and an inactive guard show (#493).
         if dropped_terms:
             phase_counts["ontology_guard_dropped_terms"] = dropped_terms
+        if converted_modifier_findings:
+            phase_counts["ontology_guard_converted_modifier_findings"] = (
+                converted_modifier_findings
+            )
         if all_terms:
-            trace["ontology_guard"] = {
+            guard_trace: dict[str, Any] = {
                 "available": guard_available(),
                 "dropped_terms": dropped_terms,
             }
+            if converted_modifier_findings:
+                guard_trace["converted_modifier_findings"] = converted_modifier_findings
+            trace["ontology_guard"] = guard_trace
+
+        if extract_modifiers:
+            surviving_findings = [
+                *guarded_terms,
+                *guarded_family,
+                *guarded_other_person,
+            ]
+            if any(
+                raw_modifiers_by_phenotype.get(id(finding))
+                for finding in surviving_findings
+            ):
+                modifier_outcome = self._resolve_modifiers(
+                    findings=surviving_findings,
+                    raw_modifiers_by_phenotype=raw_modifiers_by_phenotype,
+                    text=text,
+                    grounded_chunks=grounded_chunks,
+                    language=language,
+                    profile=profile,
+                    guard_map=guard_map,
+                )
+                phase_timings["modifiers_phase2a_seconds"] = (
+                    modifier_outcome.phase2a_seconds
+                )
+                phase_timings["modifiers_phase2b_local_seconds"] = (
+                    modifier_outcome.phase2b_local_seconds
+                )
+                phase_counts["modifier_phrases"] = modifier_outcome.modifier_phrases
+                phase_counts["modifier_local_matches"] = modifier_outcome.local_matches
+                phase_counts["modifier_llm_mapped"] = modifier_outcome.llm_mapped
+                if modifier_outcome.suppressed_double_encoding:
+                    phase_counts["modifier_suppressed_double_encoding"] = (
+                        modifier_outcome.suppressed_double_encoding
+                    )
+                if modifier_outcome.mapping_ran:
+                    phase_timings["modifiers_phase2b_llm_seconds"] = (
+                        modifier_outcome.phase2b_llm_seconds
+                    )
+                    phase_request_counts["modifiers_phase2b_llm_requests"] = (
+                        modifier_outcome.phase2b_llm_requests
+                    )
+                prompt_tokens_total += modifier_outcome.prompt_tokens
+                completion_tokens_total += modifier_outcome.completion_tokens
+                token_usage_total = _sum_usage_dicts(
+                    token_usage_total, modifier_outcome.token_usage
+                )
+                request_count_total += modifier_outcome.request_count
+                trace["modifiers"] = modifier_outcome.trace
+
+        deduped_terms = self._deduplicate_terms(guarded_terms)
+        deduped_family = self._deduplicate_terms(guarded_family)
+        deduped_other_person = self._deduplicate_terms(guarded_other_person)
+
+        for finding in (*deduped_terms, *deduped_family, *deduped_other_person):
+            if finding.modifiers:
+                validated_modifiers, mod_warnings = validate_finding_modifiers(
+                    finding.modifiers,
+                    profile=profile,
+                    ancestors_map=guard_map,
+                )
+                finding.modifiers = validated_modifiers
+                _append_unique_warnings(finding, mod_warnings)
 
         return LLMExtractionResult(
-            terms=self._deduplicate_terms(guarded_terms),
-            family_history_findings=self._deduplicate_terms(guarded_family),
-            other_person_findings=self._deduplicate_terms(guarded_other_person),
+            terms=deduped_terms,
+            family_history_findings=deduped_family,
+            other_person_findings=deduped_other_person,
             meta=LLMMeta(
                 llm_provider=config.provider,
                 llm_model=config.model,
@@ -740,6 +957,8 @@ class TwoPhaseLLMPipeline:
         resolved_terms: list[LLMPhenotype],
         grounded_chunks: list[dict[str, Any]],
         language: str,
+        profile: OntologyProfile | None = None,
+        guard_map: Mapping[str, frozenset[str]] | None = None,
     ) -> tuple[list[LLMPhenotype], _ItemResolutionOutcome | None]:
         """Generate an excluded finding for each proband finding's negated
         qualifier Y that maps at or above the confidence floor (B3).
@@ -794,6 +1013,8 @@ class TwoPhaseLLMPipeline:
             synthetic_items,
             grounded_chunks=grounded_chunks,
             language=language,
+            profile=profile,
+            guard_map=guard_map,
         )
         exclusions: list[LLMPhenotype] = []
         for mapped in outcome.resolved:
@@ -830,6 +1051,8 @@ class TwoPhaseLLMPipeline:
         *,
         grounded_chunks: list[dict[str, Any]],
         language: str,
+        profile: OntologyProfile | None = None,
+        guard_map: Mapping[str, frozenset[str]] | None = None,
     ) -> _ItemResolutionOutcome:
         """Run one item set through the shared phase-2 path (retrieve -> route
         -> map) and return every accounting delta as a pure outcome.
@@ -840,6 +1063,7 @@ class TwoPhaseLLMPipeline:
         ``run()`` merges the returned deltas into the appropriate meta
         namespace."""
         resolved: list[LLMPhenotype] = []
+        raw_modifiers_by_phenotype: dict[int, list[str]] = {}
         logger.debug(
             "Phase 2A: retrieving candidates for actionable_phrases=%d",
             len(items),
@@ -850,6 +1074,8 @@ class TwoPhaseLLMPipeline:
                 actionable=items,
                 grounded_chunks=grounded_chunks,
                 language=language,
+                profile=profile,
+                guard_map=guard_map,
             )
         except LLMPipelinePhaseError:
             raise
@@ -878,6 +1104,7 @@ class TwoPhaseLLMPipeline:
         ) = self._route_phase2_candidates(
             phrase_candidates=phrase_candidates,
             language=language,
+            raw_modifiers_sink=raw_modifiers_by_phenotype,
         )
         phase2b_local_seconds = round(time.perf_counter() - phase2b_local_start, 6)
         resolved.extend(locally_resolved)
@@ -928,6 +1155,7 @@ class TwoPhaseLLMPipeline:
                 ) = self._resolve_with_mapping_prompt(
                     unresolved=unresolved,
                     mapping_prompt=mapping_prompt,
+                    raw_modifiers_sink=raw_modifiers_by_phenotype,
                 )
             except LLMPipelinePhaseError:
                 raise
@@ -978,6 +1206,7 @@ class TwoPhaseLLMPipeline:
             phase2b_local_trace=phase2b_local_trace,
             phase2b_llm_trace=phase2b_llm_trace,
             mapping_ran=mapping_ran,
+            raw_modifiers_by_phenotype=raw_modifiers_by_phenotype,
         )
 
     def warmup(self, *, language: str) -> None:
@@ -1002,6 +1231,7 @@ class TwoPhaseLLMPipeline:
         chunk_index_text: str | None = None,
         capture_debug: bool = False,
         max_output_tokens: int | None = None,
+        extract_modifiers: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, int], int, dict[str, Any] | None]:
         user_prompt = _render_phase1_user_prompt(
             extraction_prompt=extraction_prompt,
@@ -1022,11 +1252,20 @@ class TwoPhaseLLMPipeline:
             len(user_prompt),
             max_output_tokens,
         )
-        response_model = (
-            LLMGroundedExtractedPhenotypes
-            if grounded_chunks or chunk_index_text is not None
-            else LLMExtractedPhenotypes
-        )
+        is_grounded = bool(grounded_chunks or chunk_index_text is not None)
+        response_model: type[Any]
+        if extract_modifiers:
+            response_model = (
+                LLMGroundedExtractedPhenotypesWithModifiers
+                if is_grounded
+                else LLMExtractedPhenotypesWithModifiers
+            )
+        else:
+            response_model = (
+                LLMGroundedExtractedPhenotypes
+                if is_grounded
+                else LLMExtractedPhenotypes
+            )
         try:
             response = self.provider.run_structured_prompt(
                 system_prompt=extraction_prompt.render_system_prompt(),
@@ -1051,37 +1290,40 @@ class TwoPhaseLLMPipeline:
         request_count = int(getattr(self.provider, "last_request_count", 0) or 0)
         parsed: list[dict[str, Any]] = []
         for phenotype in response.phenotypes:
-            parsed.append(
-                {
-                    "phrase": phenotype.phrase.strip(),
-                    "category": _normalize_category(phenotype.category),
-                    "negated_qualifier": getattr(phenotype, "negated_qualifier", None),
-                    "chunk_ids": list(getattr(phenotype, "chunk_ids", [])),
-                    "evidence_text": getattr(phenotype, "evidence_text", None),
-                    "start_char": getattr(phenotype, "start_char", None),
-                    "end_char": getattr(phenotype, "end_char", None),
-                    "experiencer": getattr(phenotype, "experiencer", None),
-                    "temporality": (
-                        phenotype.temporality
-                        if "temporality" in phenotype.model_fields_set
-                        else None
-                    ),
-                    # Thread the model's assertion ONLY when the model actually
-                    # emitted it. The wire schema declares assertion with a
-                    # default of "present", so a category-only finding (e.g.
-                    # Normal/Suspected) always has a non-None attribute; keying
-                    # on ``model_fields_set`` distinguishes a model-emitted
-                    # assertion from the schema default. When unset we thread
-                    # None so the downstream category fallback re-engages and a
-                    # ruled-out/uncertain finding does not silently flip to
-                    # present (B1).
-                    "assertion": (
-                        phenotype.assertion
-                        if "assertion" in phenotype.model_fields_set
-                        else None
-                    ),
-                }
-            )
+            parsed_item: dict[str, Any] = {
+                "phrase": phenotype.phrase.strip(),
+                "category": _normalize_category(phenotype.category),
+                "negated_qualifier": getattr(phenotype, "negated_qualifier", None),
+                "chunk_ids": list(getattr(phenotype, "chunk_ids", [])),
+                "evidence_text": getattr(phenotype, "evidence_text", None),
+                "start_char": getattr(phenotype, "start_char", None),
+                "end_char": getattr(phenotype, "end_char", None),
+                "experiencer": getattr(phenotype, "experiencer", None),
+                "temporality": (
+                    phenotype.temporality
+                    if "temporality" in phenotype.model_fields_set
+                    else None
+                ),
+                # Thread the model's assertion ONLY when the model actually
+                # emitted it. The wire schema declares assertion with a
+                # default of "present", so a category-only finding (e.g.
+                # Normal/Suspected) always has a non-None attribute; keying
+                # on ``model_fields_set`` distinguishes a model-emitted
+                # assertion from the schema default. When unset we thread
+                # None so the downstream category fallback re-engages and a
+                # ruled-out/uncertain finding does not silently flip to
+                # present (B1).
+                "assertion": (
+                    phenotype.assertion
+                    if "assertion" in phenotype.model_fields_set
+                    else None
+                ),
+            }
+            if extract_modifiers:
+                parsed_item["modifiers"] = _normalize_modifiers(
+                    getattr(phenotype, "modifiers", [])
+                )
+            parsed.append(parsed_item)
         debug_payload: dict[str, Any] | None = None
         if capture_debug:
             structured_payload = (
@@ -1112,6 +1354,7 @@ class TwoPhaseLLMPipeline:
         extraction_prompt,
         capture_debug: bool = False,
         retry_truncated_groups: bool = False,
+        extract_modifiers: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, int], int, float, list[dict[str, Any]]]:
         extracted: list[dict[str, Any]] = []
         prompt_tokens_total = 0
@@ -1153,6 +1396,7 @@ class TwoPhaseLLMPipeline:
                     extraction_prompt=extraction_prompt,
                     chunk_lookup=chunk_lookup,
                     capture_debug=capture_debug,
+                    extract_modifiers=extract_modifiers,
                 ): group
                 for group in indexed_groups
             }
@@ -1376,6 +1620,7 @@ class TwoPhaseLLMPipeline:
         chunk_lookup: dict[int, dict[str, Any]],
         capture_debug: bool = False,
         max_output_tokens: int | None = None,
+        extract_modifiers: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, int], int, float, dict[str, Any] | None]:
         group_chunk_ids = [
             int(chunk_id) for chunk_id in extraction_group.get("chunk_ids", [])
@@ -1398,6 +1643,7 @@ class TwoPhaseLLMPipeline:
                     extraction_prompt=extraction_prompt,
                     capture_debug=capture_debug,
                     max_output_tokens=max_output_tokens,
+                    extract_modifiers=extract_modifiers,
                 )
             )
         except LLMPipelinePhaseError as exc:
@@ -1427,6 +1673,7 @@ class TwoPhaseLLMPipeline:
         extraction_groups: list[dict[str, Any]],
         extraction_prompt: PromptTemplate,
         capture_phase1_debug: bool = False,
+        extract_modifiers: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, int], int, float, list[dict[str, Any]]]:
         phase1_started = time.perf_counter()
         try:
@@ -1437,6 +1684,7 @@ class TwoPhaseLLMPipeline:
                         grounded_chunks=grounded_chunks,
                         extraction_prompt=extraction_prompt,
                         capture_debug=capture_phase1_debug,
+                        extract_modifiers=extract_modifiers,
                     )
                 )
                 groups_trace: list[dict[str, Any]] = []
@@ -1498,6 +1746,7 @@ class TwoPhaseLLMPipeline:
                 extraction_prompt=extraction_prompt,
                 capture_debug=capture_phase1_debug,
                 retry_truncated_groups=mode == "grouped_small",
+                extract_modifiers=extract_modifiers,
             )
         except LLMPipelinePhaseError as exc:
             if exc.elapsed_seconds is None:
@@ -1717,12 +1966,74 @@ class TwoPhaseLLMPipeline:
             attempts_trace=attempts_trace,
         )
 
+    def _check_index_roots_compatibility(
+        self,
+        *,
+        language: str,
+        profile: OntologyProfile,
+        guard_map: Mapping[str, frozenset[str]],
+        include_modifiers: bool,
+    ) -> None:
+        if not hasattr(self.tool_executor, "check_index_roots_compatibility"):
+            return
+        if (
+            isinstance(self.tool_executor, ToolExecutor)
+            and self.tool_executor._cached_retriever is None
+            and self.tool_executor._retriever is None
+        ):
+            return
+        required_roots = profile.roots.effective_required_roots(
+            include_modifiers=include_modifiers
+        )
+        try:
+            warnings = self.tool_executor.check_index_roots_compatibility(
+                language=language,
+                configured_index_roots=profile.roots.index_roots,
+                required_roots=required_roots,
+                ancestors_map=guard_map,
+                strict=False,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Index root compatibility check skipped: %s", exc)
+            return
+        for warning_msg in warnings:
+            logger.warning("Index roots compatibility: %s", warning_msg)
+
+    def _query_batch_hpo_terms(
+        self,
+        *,
+        phrases: list[str],
+        language: str,
+        n_results: int,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if allowed_term_ids is not None and _supports_kwarg(
+            self.tool_executor.query_batch_hpo_terms, "allowed_term_ids"
+        ):
+            return list(
+                self.tool_executor.query_batch_hpo_terms(
+                    phrases=phrases,
+                    language=language,
+                    n_results=n_results,
+                    allowed_term_ids=allowed_term_ids,
+                )
+            )
+        return list(
+            self.tool_executor.query_batch_hpo_terms(
+                phrases=phrases,
+                language=language,
+                n_results=n_results,
+            )
+        )
+
     def _retrieve_candidates(
         self,
         *,
         actionable: list[dict[str, Any]],
         grounded_chunks: list[dict[str, Any]],
         language: str,
+        profile: OntologyProfile | None = None,
+        guard_map: Mapping[str, frozenset[str]] | None = None,
     ) -> list[dict[str, Any]]:
         unique_actionable: list[dict[str, Any]] = []
         actionable_groups: dict[
@@ -1775,7 +2086,10 @@ class TwoPhaseLLMPipeline:
             )
 
         # Loaded once: the guard checks every candidate of every phrase below.
-        guard_map = load_guard_map()
+        active_profile = (
+            profile if profile is not None else get_default_ontology_profile()
+        )
+        active_guard_map = load_guard_map() if guard_map is None else guard_map
         for item in unique_actionable:
             phrase = str(item["phrase"])
             category = str(item["category"])
@@ -1798,14 +2112,16 @@ class TwoPhaseLLMPipeline:
                     similarities = self._extract_first_result_list(
                         batch_result, "similarities"
                     )
-                    # Filter before selection: a non-phenotypic hit would use up
+                    # Filter before selection: a non-finding hit would use up
                     # a selection slot or the min-fill quota and then be removed
                     # below without replacement (#493).
                     phenotypic_indices = [
                         index
                         for index, metadata in enumerate(metadatas)
-                        if not is_non_phenotypic_abnormality(
-                            str(metadata.get("hpo_id", "")), guard_map
+                        if _is_accepted_finding_candidate(
+                            str(metadata.get("hpo_id", "")),
+                            profile=active_profile,
+                            guard_map=active_guard_map,
                         )
                     ]
                     if len(phenotypic_indices) < len(metadatas):
@@ -1829,9 +2145,13 @@ class TwoPhaseLLMPipeline:
 
                 for candidate in candidates:
                     hpo_id = str(candidate.get("hpo_id", "")).strip()
-                    # Filter before mapping: _drop_non_phenotypic runs after a term is
-                    # chosen, so a finding mapped to a modifier would be lost entirely.
-                    if not hpo_id or is_non_phenotypic_abnormality(hpo_id, guard_map):
+                    # Filter before mapping: post-mapping guard runs after a term is
+                    # chosen, so a finding mapped to a disallowed branch would be lost.
+                    if not hpo_id or not _is_accepted_finding_candidate(
+                        hpo_id,
+                        profile=active_profile,
+                        guard_map=active_guard_map,
+                    ):
                         continue
                     existing = merged_candidates.get(hpo_id)
                     if existing is None or float(
@@ -1870,6 +2190,8 @@ class TwoPhaseLLMPipeline:
             shared_result["experiencer"] = item.get("experiencer")
             shared_result["assertion"] = item.get("assertion")
             shared_result["temporality"] = item.get("temporality")
+            if "modifiers" in item:
+                shared_result["modifiers"] = list(item.get("modifiers") or [])
             shared_result["grounded_context"] = self._build_grounded_context(
                 item=item,
                 grounded_chunks=grounded_chunks,
@@ -1914,12 +2236,13 @@ class TwoPhaseLLMPipeline:
         extracted: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         deduplicated: list[dict[str, Any]] = []
-        seen_keys: set[tuple[Any, ...]] = set()
+        seen_items: dict[tuple[Any, ...], dict[str, Any]] = {}
         for item in extracted:
             key = _phase1_extraction_dedup_key(item)
-            if key in seen_keys:
+            if key in seen_items:
+                if "modifiers" in item:
+                    TwoPhaseLLMPipeline._merge_phase1_modifiers(seen_items[key], item)
                 continue
-            seen_keys.add(key)
             merged = False
             for existing in deduplicated:
                 if not TwoPhaseLLMPipeline._should_merge_phase1_extractions(
@@ -1927,11 +2250,16 @@ class TwoPhaseLLMPipeline:
                 ):
                     continue
                 TwoPhaseLLMPipeline._merge_phase1_extraction(existing, item)
+                seen_items[key] = existing
                 merged = True
                 break
             if merged:
                 continue
-            deduplicated.append(dict(item))
+            copied = dict(item)
+            if "modifiers" in item:
+                copied["modifiers"] = _normalize_modifiers(item.get("modifiers"))
+            deduplicated.append(copied)
+            seen_items[key] = copied
         return deduplicated
 
     @staticmethod
@@ -1994,26 +2322,7 @@ class TwoPhaseLLMPipeline:
         cleanup dropped around it is searched over exactly the source text that
         rendering shows, because the model may quote that text.
         """
-        chunk_spans: dict[int, tuple[int, int]] = {}
-        search_spans: dict[int, tuple[int, int]] = {}
-        for region in rendered_regions(
-            text,
-            [
-                (chunk.get("start_char"), chunk.get("end_char"))
-                for chunk in grounded_chunks
-            ],
-        ):
-            chunk = grounded_chunks[region.index]
-            chunk_id = int(chunk["chunk_id"])
-            chunk_spans[chunk_id] = (region.chunk_start, region.chunk_end)
-            # A rendered chunk also shows the text dropped before it and the
-            # punctuation after it, so its search region covers both.
-            search_spans[chunk_id] = (
-                (region.start, region.end)
-                if chunk.get("prompt_text")
-                else (region.chunk_start, region.chunk_end)
-            )
-        locator = EvidenceLocator(text, chunk_spans, search_spans=search_spans)
+        locator = _build_evidence_locator(text, grounded_chunks)
         for item in extracted:
             located = locator.locate(
                 item.get("evidence_text"), item.get("chunk_ids") or []
@@ -2021,6 +2330,19 @@ class TwoPhaseLLMPipeline:
             item["start_char"] = located.start
             item["end_char"] = located.end
             item["offset_basis"] = located.basis
+
+    @staticmethod
+    def _merge_phase1_modifiers(
+        existing: dict[str, Any],
+        incoming: dict[str, Any],
+    ) -> None:
+        if "modifiers" in existing or "modifiers" in incoming:
+            existing["modifiers"] = _normalize_modifiers(
+                [
+                    *(existing.get("modifiers") or []),
+                    *(incoming.get("modifiers") or []),
+                ]
+            )
 
     @staticmethod
     def _merge_phase1_extraction(
@@ -2034,12 +2356,14 @@ class TwoPhaseLLMPipeline:
             existing.get("evidence_text"),
             incoming.get("evidence_text"),
         )
+        TwoPhaseLLMPipeline._merge_phase1_modifiers(existing, incoming)
 
     def _route_phase2_candidates(
         self,
         *,
         phrase_candidates: list[dict[str, Any]],
         language: str,
+        raw_modifiers_sink: dict[int, list[str]] | None = None,
     ) -> tuple[list[LLMPhenotype], list[dict[str, Any]], dict[str, int]]:
         resolved: list[LLMPhenotype] = []
         unresolved: list[dict[str, Any]] = []
@@ -2080,9 +2404,10 @@ class TwoPhaseLLMPipeline:
                 )
                 continue
 
-            resolved.append(
-                self._phenotype_from_candidate(item=item, candidate=local_match)
-            )
+            phenotype = self._phenotype_from_candidate(item=item, candidate=local_match)
+            if raw_modifiers_sink is not None and item.get("modifiers"):
+                raw_modifiers_sink[id(phenotype)] = list(item["modifiers"])
+            resolved.append(phenotype)
             counts["phase2b_local_accept_count"] += 1
             logger.debug(
                 "Phase 2B-local: phrase=%r matched=%s",
@@ -2142,6 +2467,7 @@ class TwoPhaseLLMPipeline:
         *,
         unresolved: list[dict[str, Any]],
         mapping_prompt,
+        raw_modifiers_sink: dict[int, list[str]] | None = None,
     ) -> tuple[
         list[LLMPhenotype],
         int,
@@ -2205,6 +2531,9 @@ class TwoPhaseLLMPipeline:
                 ) = self._resolve_mapping_selection(
                     item=item, selected_id=selected_id, explicit_null=explicit_null
                 )
+                if raw_modifiers_sink is not None and item.get("modifiers"):
+                    for phenotype in item_resolved:
+                        raw_modifiers_sink[id(phenotype)] = list(item["modifiers"])
                 resolved.extend(item_resolved)
                 local_fallback_count += item_local_fallback_count
                 mapping_trace.append(item_trace)
@@ -2218,6 +2547,11 @@ class TwoPhaseLLMPipeline:
                         selected_id=selected_id,
                         explicit_null=explicit_null,
                     )
+                    if raw_modifiers_sink is not None and grouped_item.get("modifiers"):
+                        for phenotype in grouped_resolved:
+                            raw_modifiers_sink[id(phenotype)] = list(
+                                grouped_item["modifiers"]
+                            )
                     resolved.extend(grouped_resolved)
                     local_fallback_count += grouped_local_fallback_count
                     mapping_trace.append(
@@ -2439,12 +2773,810 @@ class TwoPhaseLLMPipeline:
     def _deduplicate_terms(terms: list[LLMPhenotype]) -> list[LLMPhenotype]:
         return deduplicate_terms(terms)
 
+    def _extract_modifier_candidates(
+        self,
+        *,
+        phrase: str,
+        batch_result: dict[str, Any],
+        profile: OntologyProfile,
+        guard_map: Mapping[str, frozenset[str]],
+    ) -> tuple[list[dict[str, Any]], list[OntologyWarning], bool]:
+        """Parse and validate retrieved modifier candidates for one phrase.
+
+        Returns ``(accepted_candidates, warnings, matched_disallowed)``.
+        """
+        raw_candidates: list[dict[str, Any]] = []
+        if "candidates" in batch_result:
+            raw_candidates = [
+                {**dict(candidate), "retrieval_query": phrase}
+                for candidate in batch_result.get("candidates", [])
+                if isinstance(candidate, dict)
+            ]
+        else:
+            metadatas = self._extract_first_result_list(batch_result, "metadatas")
+            similarities = self._extract_first_result_list(batch_result, "similarities")
+            for idx, metadata in enumerate(metadatas):
+                if not isinstance(metadata, dict):
+                    continue
+                hpo_id = str(metadata.get("hpo_id", "")).strip()
+                label = str(metadata.get("label", "")).strip()
+                score = float(similarities[idx]) if idx < len(similarities) else 0.0
+                if hpo_id:
+                    raw_candidates.append(
+                        {
+                            "hpo_id": hpo_id,
+                            "term_name": label,
+                            "score": score,
+                            "retrieval_query": phrase,
+                        }
+                    )
+
+        deduped: dict[str, dict[str, Any]] = {}
+        for candidate in raw_candidates:
+            hpo_id = str(candidate.get("hpo_id", "")).strip()
+            if not hpo_id:
+                continue
+            existing = deduped.get(hpo_id)
+            if existing is None or float(candidate.get("score", 0.0) or 0.0) > float(
+                existing.get("score", 0.0) or 0.0
+            ):
+                deduped[hpo_id] = candidate
+
+        ranked = sorted(
+            deduped.values(),
+            key=lambda candidate: float(candidate.get("score", 0.0) or 0.0),
+            reverse=True,
+        )
+
+        accepted: list[dict[str, Any]] = []
+        disallowed: list[dict[str, Any]] = []
+        disallowed_warnings: dict[str, tuple[OntologyWarning, ...]] = {}
+        for candidate in ranked:
+            hpo_id = str(candidate.get("hpo_id", "")).strip()
+            decision = check_modifier_term(
+                hpo_id, profile=profile, ancestors_map=guard_map
+            )
+            if decision.accepted:
+                accepted.append(candidate)
+            elif decision.warnings:
+                disallowed.append(candidate)
+                disallowed_warnings[hpo_id] = decision.warnings
+
+        warnings: list[OntologyWarning] = []
+        matched_disallowed = False
+        if disallowed:
+            local_disallowed = self._try_local_match(phrase, disallowed)
+            if local_disallowed is not None:
+                warnings.extend(
+                    disallowed_warnings.get(str(local_disallowed["hpo_id"]), ())
+                )
+                matched_disallowed = True
+            else:
+                top_raw = ranked[0] if ranked else None
+                if (
+                    top_raw is not None
+                    and str(top_raw.get("hpo_id", "")) in disallowed_warnings
+                    and float(top_raw.get("score", 0.0) or 0.0)
+                    >= self.similarity_threshold
+                ):
+                    warnings.extend(disallowed_warnings[str(top_raw["hpo_id"])])
+                    matched_disallowed = True
+
+        return (
+            accepted[: min(self.n_results_per_phrase, 25)],
+            warnings,
+            matched_disallowed,
+        )
+
+    def _resolve_modifiers(
+        self,
+        *,
+        findings: list[LLMPhenotype],
+        raw_modifiers_by_phenotype: dict[int, list[str]],
+        text: str,
+        grounded_chunks: list[dict[str, Any]],
+        language: str,
+        profile: OntologyProfile,
+        guard_map: Mapping[str, frozenset[str]],
+    ) -> _ModifierResolutionOutcome:
+        outcome = _ModifierResolutionOutcome()
+        # Collect unique modifier phrases preserving order.
+        unique_phrases: list[str] = []
+        phrase_by_key: dict[str, str] = {}
+        for finding in findings:
+            for raw_phrase in raw_modifiers_by_phenotype.get(id(finding), []):
+                key = normalize_mapping_phrase_key(raw_phrase)
+                if not key:
+                    continue
+                if key not in phrase_by_key:
+                    phrase_by_key[key] = raw_phrase
+                    unique_phrases.append(raw_phrase)
+
+        if not unique_phrases:
+            return outcome
+
+        outcome.modifier_phrases = len(unique_phrases)
+        modifier_term_ids: set[str] | None = None
+        if profile.roots.modifier_roots and guard_map:
+            retrieval_roots = (
+                *profile.roots.modifier_roots,
+                *profile.disallowed_modifier_roots.values(),
+            )
+            modifier_term_ids = term_ids_under_roots(retrieval_roots, guard_map)
+
+        phase2a_start = time.perf_counter()
+        batched_results = self._query_batch_hpo_terms(
+            phrases=unique_phrases,
+            language=language,
+            n_results=min(self.n_results_per_phrase, 25),
+            allowed_term_ids=modifier_term_ids,
+        )
+        candidates_by_phrase_key: dict[str, list[dict[str, Any]]] = {}
+        warnings_by_phrase_key: dict[str, list[OntologyWarning]] = {}
+        disallowed_phrase_keys: set[str] = set()
+        for idx, phrase in enumerate(unique_phrases):
+            phrase_key = normalize_mapping_phrase_key(phrase)
+            batch_result = batched_results[idx] if idx < len(batched_results) else {}
+            accepted_cands, phrase_warnings, matched_disallowed = (
+                self._extract_modifier_candidates(
+                    phrase=phrase,
+                    batch_result=batch_result,
+                    profile=profile,
+                    guard_map=guard_map,
+                )
+            )
+            candidates_by_phrase_key[phrase_key] = accepted_cands
+            if phrase_warnings:
+                warnings_by_phrase_key[phrase_key] = phrase_warnings
+            if matched_disallowed:
+                disallowed_phrase_keys.add(phrase_key)
+        outcome.phase2a_seconds = round(time.perf_counter() - phase2a_start, 6)
+
+        # Deduplicate tasks by (phrase_key, finding.term_id, finding.label).
+        TaskKey = tuple[str, str, str]
+        tasks: dict[TaskKey, dict[str, Any]] = {}
+        finding_tasks: list[tuple[LLMPhenotype, str, TaskKey]] = []
+        for finding in findings:
+            for raw_phrase in raw_modifiers_by_phenotype.get(id(finding), []):
+                phrase_key = normalize_mapping_phrase_key(raw_phrase)
+                if not phrase_key:
+                    continue
+                task_key: TaskKey = (phrase_key, finding.term_id, finding.label)
+                finding_tasks.append((finding, raw_phrase, task_key))
+                if task_key not in tasks:
+                    chunk_ids = [
+                        cid
+                        for record in finding.evidence_records
+                        for cid in record.chunk_ids
+                    ]
+                    primary_ev_text = (
+                        finding.evidence_records[0].evidence_text
+                        if finding.evidence_records
+                        else finding.evidence
+                    )
+                    tasks[task_key] = {
+                        "phrase": raw_phrase,
+                        "phrase_key": phrase_key,
+                        "finding_term": {
+                            "id": finding.term_id,
+                            "label": finding.label,
+                        },
+                        "grounded_context": build_grounded_context(
+                            item={
+                                "chunk_ids": chunk_ids,
+                                "evidence_text": primary_ev_text,
+                                "phrase": raw_phrase,
+                            },
+                            grounded_chunks=grounded_chunks,
+                        ),
+                        "candidates": candidates_by_phrase_key.get(phrase_key, []),
+                        "task_key": task_key,
+                    }
+
+        # Attach any disallowed warnings to the findings referencing those phrases.
+        for finding, _raw_phrase, task_key in finding_tasks:
+            disallowed_phrase_warnings = warnings_by_phrase_key.get(task_key[0])
+            if disallowed_phrase_warnings:
+                _append_unique_warnings(finding, disallowed_phrase_warnings)
+
+        # Phase 2B-local for modifiers.
+        phase2b_local_start = time.perf_counter()
+        resolved_by_task: dict[TaskKey, tuple[str, str]] = {}
+        deferred_tasks: list[dict[str, Any]] = []
+        local_trace: list[dict[str, Any]] = []
+        suppressed_trace: list[dict[str, Any]] = []
+
+        for task_key, task in tasks.items():
+            phrase_key = task["phrase_key"]
+            phrase = task["phrase"]
+            finding_label = task["finding_term"]["label"]
+            accepted_cands = task["candidates"]
+
+            if phrase_key in disallowed_phrase_keys:
+                continue
+            if not accepted_cands:
+                continue
+
+            if finding_already_expresses_modifier(
+                finding_label=finding_label,
+                modifier_label="",
+                modifier_phrase=phrase,
+            ):
+                outcome.suppressed_double_encoding += 1
+                suppressed_trace.append(
+                    {
+                        "phrase": phrase,
+                        "finding_term_id": task["finding_term"]["id"],
+                        "reason": "double_encoding_phrase",
+                    }
+                )
+                continue
+
+            route = self._decide_phase2_routing(
+                item={"phrase": phrase, "candidates": accepted_cands},
+                language=language,
+            )
+            matched = (
+                self._try_local_match(phrase, accepted_cands)
+                if route == "local"
+                else None
+            )
+            if matched is not None:
+                if finding_already_expresses_modifier(
+                    finding_label=finding_label,
+                    modifier_label=str(matched["term_name"]),
+                    modifier_phrase=phrase,
+                ):
+                    outcome.suppressed_double_encoding += 1
+                    suppressed_trace.append(
+                        {
+                            "phrase": phrase,
+                            "finding_term_id": task["finding_term"]["id"],
+                            "modifier_term_id": matched["hpo_id"],
+                            "reason": "double_encoding_local",
+                        }
+                    )
+                    continue
+                resolved_by_task[task_key] = (
+                    str(matched["hpo_id"]),
+                    str(matched["term_name"]),
+                )
+                outcome.local_matches += 1
+                local_trace.append(
+                    {
+                        "phrase": phrase,
+                        "finding_term_id": task["finding_term"]["id"],
+                        "term_id": matched["hpo_id"],
+                        "label": matched["term_name"],
+                        "match_method": "local",
+                    }
+                )
+                continue
+
+            deferred_tasks.append(
+                {
+                    **task,
+                    "candidates": accepted_cands[:DEFAULT_MAX_MODIFIER_CANDIDATES],
+                }
+            )
+        outcome.phase2b_local_seconds = round(
+            time.perf_counter() - phase2b_local_start, 6
+        )
+
+        # Phase 2B-llm for unresolved modifiers.
+        llm_trace: list[dict[str, Any]] = []
+        if deferred_tasks:
+            outcome.mapping_ran = True
+            modifier_mapping_prompt = (
+                get_batch_modifier_mapping_prompt(language)
+                if len(deferred_tasks) > 1 and self.mapping_batch_size > 1
+                else get_modifier_mapping_prompt(language)
+            )
+            phase2b_llm_start = time.perf_counter()
+            for start in range(0, len(deferred_tasks), self.mapping_batch_size):
+                batch = deferred_tasks[start : start + self.mapping_batch_size]
+                mapping_response, batch_usage = run_modifier_mapping_batch(
+                    provider=self.provider,
+                    batch=batch,
+                    mapping_prompt=modifier_mapping_prompt,
+                )
+                batch_reqs = int(getattr(self.provider, "last_request_count", 0) or 0)
+                outcome.request_count += batch_reqs
+                outcome.phase2b_llm_requests += batch_reqs
+                outcome.token_usage = _sum_usage_dicts(outcome.token_usage, batch_usage)
+                outcome.prompt_tokens += int(batch_usage.get("prompt_tokens", 0) or 0)
+                outcome.completion_tokens += int(
+                    batch_usage.get("completion_tokens", 0) or 0
+                )
+
+                selected_ids = self._select_candidate_ids(
+                    mapping_response=mapping_response,
+                    batch=batch,
+                )
+                explicit_nulls = _explicit_null_item_ids(
+                    mapping_response=mapping_response,
+                    batch=batch,
+                )
+                for index, mod_item in enumerate(batch):
+                    item_id = _mapping_batch_item_id(index)
+                    selected_id = selected_ids.get(item_id)
+                    explicit_null = selected_id is None and item_id in explicit_nulls
+                    task_key = mod_item["task_key"]
+                    finding_label = mod_item["finding_term"]["label"]
+                    phrase = mod_item["phrase"]
+
+                    chosen: dict[str, Any] | None = None
+                    if selected_id is not None:
+                        chosen = next(
+                            (
+                                c
+                                for c in mod_item["candidates"]
+                                if c["hpo_id"] == selected_id
+                            ),
+                            None,
+                        )
+                    elif not explicit_null:
+                        chosen = self._try_local_match(
+                            phrase,
+                            candidates_by_phrase_key.get(mod_item["phrase_key"], []),
+                        )
+
+                    if chosen is None:
+                        llm_trace.append(
+                            {
+                                "phrase": phrase,
+                                "finding_term_id": mod_item["finding_term"]["id"],
+                                "term_id": None,
+                                "explicit_null": explicit_null,
+                            }
+                        )
+                        continue
+
+                    if finding_already_expresses_modifier(
+                        finding_label=finding_label,
+                        modifier_label=str(chosen["term_name"]),
+                        modifier_phrase=phrase,
+                    ):
+                        outcome.suppressed_double_encoding += 1
+                        suppressed_trace.append(
+                            {
+                                "phrase": phrase,
+                                "finding_term_id": mod_item["finding_term"]["id"],
+                                "modifier_term_id": chosen["hpo_id"],
+                                "reason": "double_encoding_llm_guard",
+                            }
+                        )
+                        continue
+
+                    resolved_by_task[task_key] = (
+                        str(chosen["hpo_id"]),
+                        str(chosen["term_name"]),
+                    )
+                    outcome.llm_mapped += 1
+                    llm_trace.append(
+                        {
+                            "phrase": phrase,
+                            "finding_term_id": mod_item["finding_term"]["id"],
+                            "term_id": chosen["hpo_id"],
+                            "label": chosen["term_name"],
+                            "match_method": "llm",
+                        }
+                    )
+            outcome.phase2b_llm_seconds = round(
+                time.perf_counter() - phase2b_llm_start, 6
+            )
+
+        # Locate modifier spans and enforce disjoint span carving per finding.
+        locator = _build_evidence_locator(text, grounded_chunks)
+        resolved_per_finding: dict[int, list[tuple[str, str, str]]] = {}
+        finding_by_id: dict[int, LLMPhenotype] = {}
+        for finding, raw_phrase, task_key in finding_tasks:
+            resolved_mod = resolved_by_task.get(task_key)
+            if resolved_mod is None:
+                continue
+            finding_by_id[id(finding)] = finding
+            resolved_per_finding.setdefault(id(finding), []).append(
+                (resolved_mod[0], resolved_mod[1], raw_phrase)
+            )
+
+        for fid, mod_entries in resolved_per_finding.items():
+            self._attach_and_carve_modifiers(
+                finding=finding_by_id[fid],
+                resolved_mods=mod_entries,
+                text=text,
+                locator=locator,
+            )
+
+        outcome.trace = {
+            "local": local_trace,
+            "llm": llm_trace,
+            "suppressed": suppressed_trace,
+        }
+        return outcome
+
+    @staticmethod
+    def _attach_and_carve_modifiers(
+        *,
+        finding: LLMPhenotype,
+        resolved_mods: list[tuple[str, str, str]],
+        text: str,
+        locator: EvidenceLocator,
+    ) -> None:
+        primary_ev = next(
+            (
+                ev
+                for ev in finding.evidence_records
+                if ev.start_char is not None and ev.end_char is not None
+            ),
+            None,
+        )
+        finding_chunk_ids = [
+            cid for ev in finding.evidence_records for cid in ev.chunk_ids
+        ]
+        anchor_span: tuple[int, int] | None = (
+            (primary_ev.start_char, primary_ev.end_char)
+            if primary_ev is not None
+            and primary_ev.start_char is not None
+            and primary_ev.end_char is not None
+            else None
+        )
+
+        located_spans: dict[int, tuple[int, int] | None] = {}
+        for idx, (_term_id, _label, raw_phrase) in enumerate(resolved_mods):
+            if not finding_chunk_ids or not text:
+                located_spans[idx] = None
+                continue
+            located = locator.locate_nearest(
+                raw_phrase,
+                finding_chunk_ids,
+                anchor_span=anchor_span,
+                include_neighbors=True,
+            )
+            if (
+                located.start is not None
+                and located.end is not None
+                and 0 <= located.start < located.end <= len(text)
+            ):
+                located_spans[idx] = (located.start, located.end)
+            else:
+                located_spans[idx] = None
+
+        segments_by_idx: dict[int, list[ModifierSegment]] = {
+            idx: [] for idx in range(len(resolved_mods))
+        }
+
+        if primary_ev is not None and anchor_span is not None:
+            current_span = anchor_span
+            pending: list[tuple[int, int, int]] = []
+            for idx, m_span in located_spans.items():
+                if m_span is None:
+                    continue
+                m_start, m_end = m_span
+                if m_end <= current_span[0] or m_start >= current_span[1]:
+                    segments_by_idx[idx].append(
+                        ModifierSegment(
+                            start=m_start,
+                            end=m_end,
+                            text=text[m_start:m_end],
+                        )
+                    )
+                else:
+                    pending.append((idx, m_start, m_end))
+
+            while pending:
+                progressed = False
+                next_pending: list[tuple[int, int, int]] = []
+                for idx, m_start, m_end in sorted(
+                    pending, key=lambda entry: (entry[1], entry[2])
+                ):
+                    new_span, keep = carve_modifier_span(
+                        text, current_span, (m_start, m_end)
+                    )
+                    if keep:
+                        current_span = new_span
+                        segments_by_idx[idx].append(
+                            ModifierSegment(
+                                start=m_start,
+                                end=m_end,
+                                text=text[m_start:m_end],
+                            )
+                        )
+                        progressed = True
+                    else:
+                        next_pending.append((idx, m_start, m_end))
+                pending = next_pending
+                if not pending:
+                    break
+
+                next_pending = []
+                for idx, m_start, m_end in sorted(
+                    pending, key=lambda entry: (-entry[2], -entry[1])
+                ):
+                    new_span, keep = carve_modifier_span(
+                        text, current_span, (m_start, m_end)
+                    )
+                    if keep:
+                        current_span = new_span
+                        segments_by_idx[idx].append(
+                            ModifierSegment(
+                                start=m_start,
+                                end=m_end,
+                                text=text[m_start:m_end],
+                            )
+                        )
+                        progressed = True
+                    else:
+                        next_pending.append((idx, m_start, m_end))
+                pending = next_pending
+                if not progressed:
+                    break
+
+            if current_span != anchor_span:
+                primary_ev.start_char, primary_ev.end_char = current_span
+                primary_ev.evidence_text = text[current_span[0] : current_span[1]]
+        else:
+            for idx, m_span in located_spans.items():
+                if m_span is not None:
+                    m_start, m_end = m_span
+                    segments_by_idx[idx].append(
+                        ModifierSegment(
+                            start=m_start,
+                            end=m_end,
+                            text=text[m_start:m_end],
+                        )
+                    )
+
+        existing_by_id = {
+            modifier.term_id: idx for idx, modifier in enumerate(finding.modifiers)
+        }
+        for idx, (term_id, label, _raw_phrase) in enumerate(resolved_mods):
+            new_segments = segments_by_idx[idx]
+            existing_idx = existing_by_id.get(term_id)
+            if existing_idx is None:
+                existing_by_id[term_id] = len(finding.modifiers)
+                finding.modifiers.append(
+                    Modifier(
+                        term_id=term_id,
+                        label=label,
+                        segments=new_segments,
+                        source="llm",
+                    )
+                )
+            else:
+                current = finding.modifiers[existing_idx]
+                seen_segs = {(s.start, s.end, s.text) for s in current.segments}
+                merged_segs = list(current.segments)
+                for seg in new_segments:
+                    key = (seg.start, seg.end, seg.text)
+                    if key not in seen_segs:
+                        seen_segs.add(key)
+                        merged_segs.append(seg)
+                finding.modifiers[existing_idx] = current.model_copy(
+                    update={"segments": merged_segs, "source": current.source or "llm"}
+                )
+
+    @staticmethod
+    def _terms_are_colocated(first: LLMPhenotype, second: LLMPhenotype) -> bool:
+        first_chunks = {
+            cid for record in first.evidence_records for cid in record.chunk_ids
+        }
+        second_chunks = {
+            cid for record in second.evidence_records for cid in record.chunk_ids
+        }
+        if first_chunks and second_chunks and (first_chunks & second_chunks):
+            return True
+        for rec_a in first.evidence_records:
+            if rec_a.start_char is None or rec_a.end_char is None:
+                continue
+            for rec_b in second.evidence_records:
+                if rec_b.start_char is None or rec_b.end_char is None:
+                    continue
+                if (
+                    rec_a.start_char <= rec_b.end_char + 2
+                    and rec_b.start_char <= rec_a.end_char + 2
+                ):
+                    return True
+        return False
+
+    @staticmethod
+    def _attach_converted_modifier_finding(
+        *,
+        mod_term: LLMPhenotype,
+        target: LLMPhenotype,
+        text: str,
+    ) -> None:
+        segments: list[ModifierSegment] = []
+        mod_ev = next(
+            (
+                ev
+                for ev in mod_term.evidence_records
+                if ev.start_char is not None
+                and ev.end_char is not None
+                and ev.offset_basis != "chunk_span"
+            ),
+            None,
+        )
+        target_ev = next(
+            (
+                ev
+                for ev in target.evidence_records
+                if ev.start_char is not None and ev.end_char is not None
+            ),
+            None,
+        )
+        if (
+            mod_ev is not None
+            and mod_ev.start_char is not None
+            and mod_ev.end_char is not None
+        ):
+            m_start, m_end = mod_ev.start_char, mod_ev.end_char
+            if text and 0 <= m_start < m_end <= len(text):
+                if (
+                    target_ev is not None
+                    and target_ev.start_char is not None
+                    and target_ev.end_char is not None
+                ):
+                    f_span = (target_ev.start_char, target_ev.end_char)
+                    new_span, keep = carve_modifier_span(text, f_span, (m_start, m_end))
+                    if keep:
+                        if new_span != f_span:
+                            target_ev.start_char, target_ev.end_char = new_span
+                            target_ev.evidence_text = text[new_span[0] : new_span[1]]
+                        segments.append(
+                            ModifierSegment(
+                                start=m_start,
+                                end=m_end,
+                                text=text[m_start:m_end],
+                            )
+                        )
+                else:
+                    segments.append(
+                        ModifierSegment(
+                            start=m_start,
+                            end=m_end,
+                            text=text[m_start:m_end],
+                        )
+                    )
+            elif (
+                mod_ev.evidence_text
+                and len(mod_ev.evidence_text) == m_end - m_start
+                and m_end > m_start
+                and (
+                    target_ev is None
+                    or target_ev.start_char is None
+                    or target_ev.end_char is None
+                    or m_end <= target_ev.start_char
+                    or m_start >= target_ev.end_char
+                )
+            ):
+                segments.append(
+                    ModifierSegment(
+                        start=m_start,
+                        end=m_end,
+                        text=mod_ev.evidence_text,
+                    )
+                )
+
+        target.modifiers.append(
+            Modifier(
+                term_id=mod_term.term_id,
+                label=mod_term.label,
+                segments=segments,
+                source="llm",
+            )
+        )
+
     @classmethod
-    def _apply_ontology_guard(cls, *term_lists: list[LLMPhenotype]) -> tuple[Any, ...]:
+    def _apply_ontology_guard(
+        cls,
+        *term_lists: list[LLMPhenotype],
+        profile: OntologyProfile | None = None,
+        guard_map: Mapping[str, frozenset[str]] | None = None,
+        extract_modifiers: bool = False,
+        text: str = "",
+        stats: dict[str, int] | None = None,
+    ) -> tuple[Any, ...]:
         """Guard every list and return them plus the number of dropped terms."""
-        guarded = [cls._drop_non_phenotypic(terms) for terms in term_lists]
-        dropped = sum(len(t) for t in term_lists) - sum(len(g) for g in guarded)
-        return (*guarded, dropped)
+        active_profile = (
+            profile if profile is not None else get_default_ontology_profile()
+        )
+        active_guard_map = load_guard_map() if guard_map is None else guard_map
+        guarded_lists: list[list[LLMPhenotype]] = []
+        dropped = 0
+        converted = 0
+
+        use_legacy_default_guard = (
+            not extract_modifiers
+            and active_profile.roots.finding_roots == (HPO_PHENOTYPIC_ABNORMALITY_ROOT,)
+        )
+
+        for terms in term_lists:
+            accepted: list[LLMPhenotype] = []
+            modifier_candidates: list[LLMPhenotype] = []
+            for term in terms:
+                if use_legacy_default_guard:
+                    if is_non_phenotypic_abnormality(term.term_id, active_guard_map):
+                        logger.info(
+                            "ontology guard dropped non-phenotype term %s (%s)",
+                            term.term_id,
+                            term.label,
+                        )
+                        dropped += 1
+                    else:
+                        accepted.append(term)
+                    continue
+                decision = check_finding_term(
+                    term.term_id,
+                    profile=active_profile,
+                    ancestors_map=active_guard_map,
+                )
+                if decision.accepted:
+                    _append_unique_warnings(term, decision.warnings)
+                    accepted.append(term)
+                elif decision.is_modifier_term and extract_modifiers:
+                    modifier_candidates.append(term)
+                else:
+                    logger.info(
+                        "ontology guard dropped non-finding term %s (%s)",
+                        term.term_id,
+                        term.label,
+                    )
+                    dropped += 1
+
+            for mod_term in modifier_candidates:
+                targets = [
+                    candidate
+                    for candidate in accepted
+                    if (
+                        candidate.experiencer,
+                        candidate.assertion,
+                        candidate.temporality,
+                    )
+                    == (
+                        mod_term.experiencer,
+                        mod_term.assertion,
+                        mod_term.temporality,
+                    )
+                    and cls._terms_are_colocated(mod_term, candidate)
+                ]
+                if len(targets) != 1:
+                    logger.info(
+                        "ontology guard dropped modifier-as-finding %s (%s): targets=%d",
+                        mod_term.term_id,
+                        mod_term.label,
+                        len(targets),
+                    )
+                    dropped += 1
+                    continue
+                target = targets[0]
+                mod_decision = check_modifier_term(
+                    mod_term.term_id,
+                    profile=active_profile,
+                    ancestors_map=active_guard_map,
+                )
+                if not mod_decision.accepted:
+                    _append_unique_warnings(target, mod_decision.warnings)
+                    dropped += 1
+                    continue
+                if finding_already_expresses_modifier(
+                    finding_label=target.label,
+                    modifier_label=mod_term.label,
+                    modifier_phrase=mod_term.evidence or mod_term.label,
+                ):
+                    dropped += 1
+                    continue
+                cls._attach_converted_modifier_finding(
+                    mod_term=mod_term,
+                    target=target,
+                    text=text,
+                )
+                converted += 1
+
+            guarded_lists.append(accepted)
+
+        if stats is not None:
+            stats["converted_modifier_findings"] = converted
+        return (*guarded_lists, dropped)
 
     @staticmethod
     def _drop_non_phenotypic(terms: list[LLMPhenotype]) -> list[LLMPhenotype]:

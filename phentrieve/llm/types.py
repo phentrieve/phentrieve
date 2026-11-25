@@ -12,6 +12,8 @@ from phentrieve.llm.config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_PROVIDER_TEMPERATURE,
 )
+from phentrieve.modifier_models import Modifier, OntologyWarning
+from phentrieve.ontology_profiles import OntologyProfile
 
 
 class AnnotationMode(StrEnum):
@@ -80,6 +82,8 @@ class LLMPhenotype(BaseModel):
     confidence: float | None = None
     score: float | None = None
     evidence_records: list[LLMPhenotypeEvidence] = Field(default_factory=list)
+    modifiers: list[Modifier] = Field(default_factory=list)
+    warnings: list[OntologyWarning] = Field(default_factory=list)
 
 
 # Orthogonal classification axes added to the Phase-1 extraction schemas (LLM-2),
@@ -197,6 +201,42 @@ class LLMGroundedExtractedPhenotypes(BaseModel):
     phenotypes: list[LLMGroundedExtractedPhenotype] = Field(default_factory=list)
 
 
+_MODIFIERS_DESCRIPTION = (
+    "Short verbatim clinical modifier phrases copied from the note in its "
+    "original language that qualify this finding (e.g. severity, laterality, "
+    "onset, course, distribution); empty list when none."
+)
+
+
+class LLMExtractedPhenotypeWithModifiers(LLMExtractedPhenotype):
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description=_MODIFIERS_DESCRIPTION,
+        json_schema_extra={"maxItems": 8},
+    )
+
+
+class LLMExtractedPhenotypesWithModifiers(BaseModel):
+    phenotypes: list[LLMExtractedPhenotypeWithModifiers] = Field(
+        default_factory=list,
+        description="Distinct phenotype phrases with optional clinical modifiers.",
+    )
+
+
+class LLMGroundedExtractedPhenotypeWithModifiers(LLMGroundedExtractedPhenotype):
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description=_MODIFIERS_DESCRIPTION,
+        json_schema_extra={"maxItems": 8},
+    )
+
+
+class LLMGroundedExtractedPhenotypesWithModifiers(BaseModel):
+    phenotypes: list[LLMGroundedExtractedPhenotypeWithModifiers] = Field(
+        default_factory=list
+    )
+
+
 class LLMPhenotypeEvidence(BaseModel):
     phrase: str
     evidence_text: str | None = None
@@ -249,6 +289,8 @@ class LLMPipelineConfig(BaseModel):
     language: str | None = DEFAULT_LLM_LANGUAGE
     seed: int | None = None
     capture_phase1_debug: bool = False
+    extract_modifiers: bool = False
+    ontology_profile: OntologyProfile | None = None
 
 
 class LLMExtractionResult(BaseModel):
