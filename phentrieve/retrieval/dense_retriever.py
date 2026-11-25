@@ -7,6 +7,8 @@ relevant HPO terms based on semantic similarity with input text.
 
 import logging
 import os
+from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -44,6 +46,10 @@ from phentrieve.utils import (
 # bound-variable limit ("too many SQL variables"). See issue #402.
 CHROMA_QUERY_BATCH_SIZE = 64
 
+# Maximum number of HPO IDs sent to ChromaDB in one collection.get($in) call
+# when fetching subtree vectors into memory.
+CHROMA_SUBTREE_GET_BATCH_SIZE = 200
+
 
 class RetrievalError(RuntimeError):
     """Raised when querying the HPO vector index fails.
@@ -51,6 +57,10 @@ class RetrievalError(RuntimeError):
     Retrieval failures must not be reported as "no matching terms": callers
     (API, CLI, MCP) need to surface them as errors.
     """
+
+
+class IndexRootsMismatchError(RetrievalError):
+    """Raised when a collection's stored index_roots is incompatible with requirements."""
 
 
 def _get_collection_name(collection: Any) -> str:
@@ -184,6 +194,101 @@ class DenseRetriever:
         self.model_name: str | None = None
         self.index_base_path: Path | None = None
         self._index_type: str | None = None  # Cached index type
+        self._subtree_cache: dict[frozenset[str], dict[str, Any]] = {}
+
+    def get_index_roots(self) -> tuple[str, ...]:
+        """Return the canonical index_roots stored on the ChromaDB collection.
+
+        Returns an empty tuple ``()`` when metadata is missing or empty,
+        representing an unrestricted index over all active HPO terms.
+        """
+        from phentrieve.indexing.chromadb_indexer import parse_index_roots_metadata
+
+        try:
+            metadata = self.collection.metadata or {}
+            raw = metadata.get("index_roots")
+        except Exception as e:
+            logging.warning(
+                "Could not read index_roots metadata, assuming unrestricted: %s",
+                _sanitize(e),
+            )
+            return ()
+        return parse_index_roots_metadata(raw if isinstance(raw, str) else None)
+
+    def check_index_roots_compatibility(
+        self,
+        *,
+        configured_index_roots: Sequence[str] = (),
+        required_roots: Sequence[str] = (),
+        ancestors_map: Mapping[str, AbstractSet[str]] | None = None,
+        strict: bool = False,
+    ) -> list[str]:
+        """Verify that collection ``index_roots`` metadata matches configuration.
+
+        Detects two mismatch conditions:
+        1. ``configured_index_roots`` differs from the collection's stored
+           ``index_roots`` (after canonical sorting/deduplication).
+        2. The collection is restricted (non-empty stored ``index_roots``) and
+           a root in ``required_roots`` is not covered by the stored roots
+           (either directly or via ``ancestors_map``).
+
+        Logs a warning for each mismatch and raises ``IndexRootsMismatchError``
+        when ``strict=True``. Returns the list of warning messages (empty when
+        compatible).
+        """
+        stored_roots = self.get_index_roots()
+        normalized_configured = tuple(
+            sorted(
+                {
+                    root.strip()
+                    for root in configured_index_roots
+                    if root and root.strip()
+                }
+            )
+        )
+        normalized_required = tuple(
+            sorted({root.strip() for root in required_roots if root and root.strip()})
+        )
+
+        warnings: list[str] = []
+
+        if normalized_configured != stored_roots:
+            stored_desc = ",".join(stored_roots) if stored_roots else "<all>"
+            configured_desc = (
+                ",".join(normalized_configured) if normalized_configured else "<all>"
+            )
+            warnings.append(
+                "Index roots mismatch: collection has "
+                f"index_roots={stored_desc} but configured index_roots={configured_desc}"
+            )
+
+        if stored_roots and normalized_required:
+            stored_set = set(stored_roots)
+            missing_required: list[str] = []
+            for root in normalized_required:
+                if root in stored_set:
+                    continue
+                if ancestors_map is not None:
+                    root_ancestors = ancestors_map.get(root)
+                    if root_ancestors and any(
+                        ancestor in stored_set for ancestor in root_ancestors
+                    ):
+                        continue
+                missing_required.append(root)
+            if missing_required:
+                warnings.append(
+                    "Restricted index is missing required roots "
+                    f"{','.join(missing_required)} (collection index_roots="
+                    f"{','.join(stored_roots)})"
+                )
+
+        for warning_msg in warnings:
+            logging.warning("%s", _sanitize(warning_msg))
+
+        if strict and warnings:
+            raise IndexRootsMismatchError("; ".join(warnings))
+
+        return warnings
 
     def detect_index_type(self) -> str:
         """
@@ -284,8 +389,152 @@ class DenseRetriever:
             )
             return None
 
+    def _load_allowed_term_cache(self, cache_key: frozenset[str]) -> dict[str, Any]:
+        """Fetch and L2-normalize all collection vectors for ``cache_key``."""
+        if cache_key in self._subtree_cache:
+            return self._subtree_cache[cache_key]
+
+        import numpy as np
+
+        ids_acc: list[str] = []
+        docs_acc: list[str] = []
+        metas_acc: list[dict[str, Any]] = []
+        emb_chunks: list[Any] = []
+
+        sorted_ids = sorted(cache_key)
+        for start in range(0, len(sorted_ids), CHROMA_SUBTREE_GET_BATCH_SIZE):
+            batch_ids = sorted_ids[start : start + CHROMA_SUBTREE_GET_BATCH_SIZE]
+            part = self.collection.get(
+                where=cast(Any, {"hpo_id": {"$in": batch_ids}}),
+                include=cast(Any, ["embeddings", "metadatas", "documents"]),
+            )
+            part_ids = list(part.get("ids") or [])
+            if not part_ids:
+                continue
+            part_embs = part.get("embeddings")
+            if part_embs is None or len(part_embs) == 0:
+                continue
+            part_docs = list(part.get("documents") or [""] * len(part_ids))
+            part_metas = list(part.get("metadatas") or [{}] * len(part_ids))
+
+            ids_acc.extend(part_ids)
+            docs_acc.extend(part_docs)
+            metas_acc.extend(cast(list[dict[str, Any]], part_metas))
+            emb_chunks.append(np.asarray(part_embs, dtype=np.float32))
+
+        if not ids_acc:
+            empty_entry: dict[str, Any] = {
+                "ids": [],
+                "documents": [],
+                "metadatas": [],
+                "unit_embeddings": None,
+            }
+            self._subtree_cache[cache_key] = empty_entry
+            return empty_entry
+
+        stored_matrix = np.vstack(emb_chunks)
+        norms = np.linalg.norm(stored_matrix, axis=1, keepdims=True)
+        safe_norms = np.where(norms > 0.0, norms, 1.0)
+        unit_embeddings = stored_matrix / safe_norms
+
+        entry: dict[str, Any] = {
+            "ids": ids_acc,
+            "documents": docs_acc,
+            "metadatas": metas_acc,
+            "unit_embeddings": unit_embeddings,
+        }
+        self._subtree_cache[cache_key] = entry
+        return entry
+
+    def _query_allowed_term_ids(
+        self,
+        texts: list[str],
+        *,
+        allowed_term_ids: set[str] | frozenset[str],
+        n_results: int,
+        include_similarities: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Run exact in-memory cosine search restricted to ``allowed_term_ids``."""
+        if not texts:
+            return []
+
+        def _empty_result() -> dict[str, Any]:
+            result: dict[str, Any] = {
+                "ids": [[]],
+                "documents": [[]],
+                "metadatas": [[]],
+                "distances": [[]],
+            }
+            if include_similarities:
+                result["similarities"] = [[]]
+            return result
+
+        if not allowed_term_ids:
+            return [_empty_result() for _ in texts]
+
+        try:
+            import numpy as np
+
+            cached = self._load_allowed_term_cache(frozenset(allowed_term_ids))
+            stored_unit = cached["unit_embeddings"]
+            if stored_unit is None or not cached["ids"]:
+                return [_empty_result() for _ in texts]
+
+            device = next(self.model.parameters()).device
+            device_name = "cuda" if device.type == "cuda" else "cpu"
+            query_embeddings = self.model.encode(texts, device=device_name)
+            query_matrix = np.asarray(query_embeddings, dtype=np.float32)
+            if query_matrix.ndim == 1:
+                query_matrix = query_matrix.reshape(1, -1)
+            q_norms = np.linalg.norm(query_matrix, axis=1, keepdims=True)
+            q_safe_norms = np.where(q_norms > 0.0, q_norms, 1.0)
+            query_unit = query_matrix / q_safe_norms
+
+            sim_matrix = query_unit @ stored_unit.T
+
+            stored_ids: list[str] = cached["ids"]
+            stored_docs: list[str] = cached["documents"]
+            stored_metas: list[dict[str, Any]] = cached["metadatas"]
+
+            results_list: list[dict[str, Any]] = []
+            for i in range(len(texts)):
+                row_sims = sim_matrix[i]
+                order = np.argsort(-row_sims, kind="stable")
+                top_indices = order[: max(n_results, 0)]
+
+                res_ids = [stored_ids[int(idx)] for idx in top_indices]
+                res_docs = [stored_docs[int(idx)] for idx in top_indices]
+                res_metas = [stored_metas[int(idx)] for idx in top_indices]
+                res_dists = [1.0 - float(row_sims[int(idx)]) for idx in top_indices]
+
+                result: dict[str, Any] = {
+                    "ids": [res_ids],
+                    "documents": [res_docs],
+                    "metadatas": [res_metas],
+                    "distances": [res_dists],
+                }
+                if include_similarities:
+                    result["similarities"] = [
+                        [calculate_similarity(d) for d in res_dists]
+                    ]
+                results_list.append(result)
+
+            return results_list
+        except Exception as e:
+            logging.error(
+                "Error in subtree-restricted batch query to HPO index: %s",
+                _sanitize(e),
+            )
+            raise RetrievalError(
+                f"Subtree-restricted batch query to HPO index failed: {e}"
+            ) from e
+
     def query_batch(
-        self, texts: list[str], n_results: int = 10, include_similarities: bool = True
+        self,
+        texts: list[str],
+        n_results: int = 10,
+        include_similarities: bool = True,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Generate embeddings for multiple texts and query the HPO index in batch.
@@ -300,6 +549,8 @@ class DenseRetriever:
             texts: List of input texts to query
             n_results: Number of results to retrieve per text
             include_similarities: Whether to include similarity scores in results
+            allowed_term_ids: Optional set of HPO IDs to restrict retrieval to via
+                cached exact cosine search. When None, searches the full collection.
 
         Returns:
             List of dictionaries, one per input text, each containing query results
@@ -310,6 +561,14 @@ class DenseRetriever:
         """
         if not texts:
             return []
+
+        if allowed_term_ids is not None:
+            return self._query_allowed_term_ids(
+                texts,
+                allowed_term_ids=allowed_term_ids,
+                n_results=n_results,
+                include_similarities=include_similarities,
+            )
 
         logging.info("Processing batch query with %s texts", _sanitize(len(texts)))
 
@@ -407,7 +666,11 @@ class DenseRetriever:
             raise RetrievalError(f"Batch query to HPO index failed: {e}") from e
 
     def query(
-        self, text: str, n_results: int = 10, include_similarities: bool = True
+        self,
+        text: str,
+        n_results: int = 10,
+        include_similarities: bool = True,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
     ) -> dict[str, Any]:
         """
         Generate embedding for input text and query the HPO index.
@@ -419,6 +682,7 @@ class DenseRetriever:
             text: The input text to query
             n_results: Number of results to retrieve
             include_similarities: Whether to include similarity scores in result
+            allowed_term_ids: Optional set of HPO IDs to restrict retrieval to.
 
         Returns:
             Dictionary containing query results with distances and/or similarities
@@ -426,7 +690,15 @@ class DenseRetriever:
         logging.info("Processing query text_chars=%s", _sanitize(len(text)))
 
         # Use query_batch() internally to avoid code duplication
-        batch_results = self.query_batch([text], n_results, include_similarities)
+        if allowed_term_ids is None:
+            batch_results = self.query_batch([text], n_results, include_similarities)
+        else:
+            batch_results = self.query_batch(
+                [text],
+                n_results,
+                include_similarities,
+                allowed_term_ids=allowed_term_ids,
+            )
 
         # Return the single result
         return (
@@ -513,6 +785,7 @@ class DenseRetriever:
         | AggregationStrategy = AggregationStrategy.LABEL_SYNONYMS_MAX,
         component_weights: dict[str, float] | None = None,
         custom_formula: str | None = None,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Query a multi-vector index with score aggregation.
@@ -526,6 +799,7 @@ class DenseRetriever:
             aggregation_strategy: Strategy for combining component scores
             component_weights: Weights for "all_weighted" strategy
             custom_formula: Formula for "custom" strategy
+            allowed_term_ids: Optional set of HPO IDs to restrict retrieval to.
 
         Returns:
             List of result dictionaries sorted by aggregated score:
@@ -561,9 +835,20 @@ class DenseRetriever:
         raw_n_results = n_results * MULTI_VECTOR_RESULT_MULTIPLIER
 
         # Query the index
-        raw_results = self.query(
-            text, n_results=raw_n_results, include_similarities=True
-        )
+        if allowed_term_ids is None:
+            raw_results = self.query(
+                text, n_results=raw_n_results, include_similarities=True
+            )
+        else:
+            # Score all vectors of the allowed subset so every component vector
+            # participates in multi-vector aggregation (100% recall over subset).
+            subset_n_results = max(raw_n_results, len(allowed_term_ids) * 20)
+            raw_results = self.query(
+                text,
+                n_results=subset_n_results,
+                include_similarities=True,
+                allowed_term_ids=allowed_term_ids,
+            )
 
         # Aggregate results by HPO ID
         aggregated = aggregate_multi_vector_results(
@@ -585,6 +870,7 @@ class DenseRetriever:
         | AggregationStrategy = AggregationStrategy.LABEL_SYNONYMS_MAX,
         component_weights: dict[str, float] | None = None,
         custom_formula: str | None = None,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Query a multi-vector index for multiple texts with per-text HPO aggregation.
@@ -607,11 +893,20 @@ class DenseRetriever:
             )
 
         raw_n_results = n_results * MULTI_VECTOR_RESULT_MULTIPLIER
-        raw_batch_results = self.query_batch(
-            texts=texts,
-            n_results=raw_n_results,
-            include_similarities=True,
-        )
+        if allowed_term_ids is None:
+            raw_batch_results = self.query_batch(
+                texts=texts,
+                n_results=raw_n_results,
+                include_similarities=True,
+            )
+        else:
+            subset_n_results = max(raw_n_results, len(allowed_term_ids) * 20)
+            raw_batch_results = self.query_batch(
+                texts=texts,
+                n_results=subset_n_results,
+                include_similarities=True,
+                allowed_term_ids=allowed_term_ids,
+            )
 
         converted_results: list[dict[str, Any]] = []
         for raw_results in raw_batch_results:

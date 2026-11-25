@@ -8,6 +8,7 @@ for HPO terms, allowing efficient semantic search.
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,30 @@ from tqdm import tqdm
 
 from phentrieve.config import VectorStoreConfig
 from phentrieve.utils import get_embedding_dimension, get_model_slug
+
+
+def format_index_roots_metadata(index_roots: Sequence[str] | None) -> str:
+    """Format index root CURIEs as a canonical ChromaDB metadata string.
+
+    Empty or ``None`` returns ``""``, representing an unrestricted index over
+    all active HPO terms. Non-empty sequences return comma-separated,
+    deduplicated, sorted CURIE strings (e.g. ``"HP:0000118,HP:0012823"``).
+    """
+    if not index_roots:
+        return ""
+    cleaned = sorted({root.strip() for root in index_roots if root and root.strip()})
+    return ",".join(cleaned)
+
+
+def parse_index_roots_metadata(raw: str | None) -> tuple[str, ...]:
+    """Parse ChromaDB ``index_roots`` metadata into a canonical sorted tuple.
+
+    Missing or empty metadata returns ``()``, representing an unrestricted index.
+    """
+    if not raw:
+        return ()
+    cleaned = sorted({part.strip() for part in raw.split(",") if part.strip()})
+    return tuple(cleaned)
 
 
 def build_chromadb_index(
@@ -33,6 +58,7 @@ def build_chromadb_index(
     hpo_version: str | None = None,
     hpo_source_sha256: str | None = None,
     model_revision: str | None = None,
+    index_roots: Sequence[str] | None = None,
 ) -> bool:
     """
     Build a ChromaDB index for the given documents using the specified embedding model.
@@ -50,6 +76,8 @@ def build_chromadb_index(
         hpo_version: Resolved HPO release tag used to create the source database.
         hpo_source_sha256: Verified SHA-256 for the source hp.json.
         model_revision: Optional immutable Hugging Face revision for the model.
+        index_roots: Optional sequence of HPO root CURIEs restricting the index.
+            Empty or None represents an unrestricted index over all active terms.
 
     Returns:
         bool: True if indexing was successful, False otherwise
@@ -123,6 +151,7 @@ def build_chromadb_index(
                 logging.info(
                     f"Collection {vector_store_config.collection_name} already exists with {existing_count} documents"
                 )
+                formatted_index_roots = format_index_roots_metadata(index_roots)
                 expected_metadata = {
                     "hpo_version": hpo_version,
                     "hpo_source_sha256": hpo_source_sha256 or "",
@@ -130,13 +159,20 @@ def build_chromadb_index(
                     "model_revision": model_revision or "unpinned",
                     "index_type": index_type,
                     "expected_document_count": len(documents),
+                    "index_roots": formatted_index_roots,
                 }
                 existing_metadata = existing_collection.metadata or {}
-                mismatched_metadata = {
-                    key: (existing_metadata.get(key), value)
-                    for key, value in expected_metadata.items()
-                    if existing_metadata.get(key) != value
-                }
+                mismatched_metadata = {}
+                for key, value in expected_metadata.items():
+                    # Legacy collections without an "index_roots" key are
+                    # treated as unrestricted ("").
+                    actual = (
+                        existing_metadata.get(key, "")
+                        if key == "index_roots"
+                        else existing_metadata.get(key)
+                    )
+                    if actual != value:
+                        mismatched_metadata[key] = (actual, value)
                 if mismatched_metadata:
                     logging.error(
                         "Existing collection metadata does not match this build: %s. "
@@ -164,6 +200,7 @@ def build_chromadb_index(
             f"Using embedding dimension {model_dimension} for model {model_name}"
         )
 
+        formatted_index_roots = format_index_roots_metadata(index_roots)
         collection = client.create_collection(
             name=vector_store_config.collection_name,
             metadata={
@@ -176,6 +213,7 @@ def build_chromadb_index(
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "hnsw:space": vector_store_config.distance_metric,
                 "index_type": index_type,
+                "index_roots": formatted_index_roots,
             },
         )
         logging.info(

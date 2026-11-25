@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import logging
+from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +17,47 @@ from phentrieve.llm.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _supports_kwarg(fn: Any, kwarg: str) -> bool:
+    """Return True if callable ``fn`` accepts keyword argument ``kwarg``."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    if kwarg in sig.parameters:
+        return True
+    return any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values()
+    )
+
+
+def _filter_batch_result_by_allowed_ids(
+    result: dict[str, Any],
+    allowed_term_ids: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    """Post-filter a single ChromaDB-style result dict to ``allowed_term_ids``."""
+    raw_metadatas = result.get("metadatas") or [[]]
+    metadatas = raw_metadatas[0] if raw_metadatas else []
+    raw_ids = result.get("ids") or [[]]
+    ids = raw_ids[0] if raw_ids else []
+
+    keep_indices: list[int] = []
+    for idx, meta in enumerate(metadatas):
+        hpo_id = meta.get("hpo_id", "") if isinstance(meta, dict) else ""
+        if not hpo_id and idx < len(ids):
+            hpo_id = str(ids[idx])
+        if hpo_id in allowed_term_ids:
+            keep_indices.append(idx)
+
+    filtered: dict[str, Any] = {}
+    for key, value in result.items():
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], list):
+            inner = value[0]
+            filtered[key] = [[inner[i] for i in keep_indices if i < len(inner)]]
+        else:
+            filtered[key] = value
+    return filtered
 
 
 class ToolExecutor:
@@ -95,12 +139,42 @@ class ToolExecutor:
             )
         return results
 
+    def check_index_roots_compatibility(
+        self,
+        *,
+        language: str = "en",
+        configured_index_roots: Sequence[str] = (),
+        required_roots: Sequence[str] = (),
+        ancestors_map: Mapping[str, AbstractSet[str]] | None = None,
+        strict: bool = False,
+    ) -> list[str]:
+        """Delegate index_roots compatibility validation to the cached retriever."""
+        retriever = self._cached_retriever
+        if retriever is None:
+            if self._retriever is not None:
+                retriever = self._retriever
+            else:
+                _, _, retriever = self._get_phentrieve_components(language)
+        if retriever is None or not hasattr(
+            retriever, "check_index_roots_compatibility"
+        ):
+            return []
+        return list(
+            retriever.check_index_roots_compatibility(
+                configured_index_roots=configured_index_roots,
+                required_roots=required_roots,
+                ancestors_map=ancestors_map,
+                strict=strict,
+            )
+        )
+
     def query_batch_hpo_terms(
         self,
         *,
         phrases: list[str],
         language: str,
         n_results: int,
+        allowed_term_ids: set[str] | frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         _embedding_model, _pipeline, retriever = self._get_phentrieve_components(
             language
@@ -108,13 +182,34 @@ class ToolExecutor:
         if retriever is None:
             return []
         if self.multi_vector and hasattr(retriever, "query_multi_vector"):
+            supports_allowed = allowed_term_ids is not None and _supports_kwarg(
+                retriever.query_multi_vector, "allowed_term_ids"
+            )
             results: list[dict[str, Any]] = []
             for phrase in phrases:
-                multi_vector_results = retriever.query_multi_vector(
-                    phrase,
-                    n_results=int(n_results),
-                    aggregation_strategy=self.multi_vector_aggregation_strategy,
-                )
+                if allowed_term_ids is None:
+                    multi_vector_results = retriever.query_multi_vector(
+                        phrase,
+                        n_results=int(n_results),
+                        aggregation_strategy=self.multi_vector_aggregation_strategy,
+                    )
+                elif supports_allowed:
+                    multi_vector_results = retriever.query_multi_vector(
+                        phrase,
+                        n_results=int(n_results),
+                        aggregation_strategy=self.multi_vector_aggregation_strategy,
+                        allowed_term_ids=allowed_term_ids,
+                    )
+                else:
+                    multi_vector_results = [
+                        result
+                        for result in retriever.query_multi_vector(
+                            phrase,
+                            n_results=int(n_results),
+                            aggregation_strategy=self.multi_vector_aggregation_strategy,
+                        )
+                        if result.get("hpo_id", "") in allowed_term_ids
+                    ]
                 results.append(
                     {
                         "phrase": phrase,
@@ -132,16 +227,42 @@ class ToolExecutor:
                 )
             return results
         if hasattr(retriever, "query_batch"):
+            supports_allowed = allowed_term_ids is not None and _supports_kwarg(
+                retriever.query_batch, "allowed_term_ids"
+            )
             batch_results: list[dict[str, Any]] = []
             for start in range(0, len(phrases), self.retrieval_batch_size):
                 batch_phrases = phrases[start : start + self.retrieval_batch_size]
-                batch_results.extend(
-                    list(retriever.query_batch(batch_phrases, n_results=n_results))
-                )
+                if allowed_term_ids is None:
+                    part = list(
+                        retriever.query_batch(batch_phrases, n_results=n_results)
+                    )
+                elif supports_allowed:
+                    part = list(
+                        retriever.query_batch(
+                            batch_phrases,
+                            n_results=n_results,
+                            allowed_term_ids=allowed_term_ids,
+                        )
+                    )
+                else:
+                    part = [
+                        _filter_batch_result_by_allowed_ids(item, allowed_term_ids)
+                        for item in retriever.query_batch(
+                            batch_phrases, n_results=n_results
+                        )
+                    ]
+                batch_results.extend(part)
             return batch_results
         fallback_results: list[dict[str, Any]] = []
         for phrase in phrases:
             phrase_results = self.query_hpo_terms(query=phrase, num_results=n_results)
+            if allowed_term_ids is not None:
+                phrase_results = [
+                    result
+                    for result in phrase_results
+                    if result.get("hpo_id", "") in allowed_term_ids
+                ]
             fallback_results.append(
                 {
                     "metadatas": [
