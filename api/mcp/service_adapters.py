@@ -382,6 +382,9 @@ def _coerce_export_phenotype(request_cls: Any, p: dict[str, Any], idx: int) -> A
     # provenance the caller did pass through (defect D11).
     match_method = p.get("match_method") or "client_supplied"
     source_mode = p.get("source_mode") or "unknown"
+    extra_kwargs: dict[str, Any] = {}
+    if p.get("modifiers"):
+        extra_kwargs["modifiers"] = p["modifiers"]
     return request_cls(
         hpo_id=hpo_id,
         label=p.get("label") or p.get("name") or hpo_id,
@@ -399,6 +402,7 @@ def _coerce_export_phenotype(request_cls: Any, p: dict[str, Any], idx: int) -> A
         source_chunk_ids=[c for c in chunk_ids if isinstance(c, int)],
         match_method=match_method,
         source_mode=source_mode,
+        **extra_kwargs,
     )
 
 

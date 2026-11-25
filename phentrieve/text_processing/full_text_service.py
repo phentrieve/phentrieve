@@ -35,7 +35,10 @@ from phentrieve.llm.preprocessing import (
     build_extraction_groups,
     build_grounded_chunks_from_text_pipeline,
 )
-from phentrieve.llm.prompts.loader import get_prompt
+from phentrieve.llm.prompts.loader import (
+    get_modifier_extraction_prompt,
+    get_prompt,
+)
 from phentrieve.llm.provider import get_llm_provider
 from phentrieve.llm.tools import ToolExecutor
 from phentrieve.llm.types import AnnotationMode, LLMPipelineConfig
@@ -447,6 +450,7 @@ def _adapt_llm_aggregated_terms(
     *,
     grounded_chunks: Sequence[Mapping[str, Any]],
     document_text: str | None = None,
+    include_modifier_fields: bool = False,
 ) -> list[dict[str, Any]]:
     adapted_terms: list[dict[str, Any]] = []
     chunk_by_id = {
@@ -583,6 +587,20 @@ def _adapt_llm_aggregated_terms(
         qualifier_surface_text = getattr(term, "qualifier_surface_text", None)
         if qualifier_surface_text:
             adapted_terms[-1]["qualifier_surface_text"] = qualifier_surface_text
+        raw_modifiers = getattr(term, "modifiers", None) or []
+        adapted_modifiers = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            for item in raw_modifiers
+        ]
+        if adapted_modifiers or include_modifier_fields:
+            adapted_terms[-1]["modifiers"] = adapted_modifiers
+        raw_warnings = getattr(term, "warnings", None) or []
+        adapted_warnings = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            for item in raw_warnings
+        ]
+        if adapted_warnings:
+            adapted_terms[-1]["warnings"] = adapted_warnings
 
     return adapted_terms
 
@@ -908,9 +926,13 @@ def run_llm_backend(*, text: str, **kwargs: Any) -> StableBackendResponse:
         provider.run_structured_prompt = _stop_when_cancelled(  # type: ignore[method-assign]
             provider.run_structured_prompt, cancel_event
         )
-    extraction_prompt = get_prompt(
-        AnnotationMode.TWO_PHASE,
-        kwargs.get("language") or DEFAULT_LANGUAGE,
+    extract_modifiers = bool(kwargs.get("extract_modifiers", False))
+    ontology_profile = kwargs.get("ontology_profile")
+    resolved_language = kwargs.get("language") or DEFAULT_LANGUAGE
+    extraction_prompt = (
+        get_modifier_extraction_prompt(resolved_language)
+        if extract_modifiers
+        else get_prompt(AnnotationMode.TWO_PHASE, resolved_language)
     )
     grounded_chunks: list[dict[str, Any]] = []
     extraction_groups: list[dict[str, Any]] = []
@@ -1036,6 +1058,8 @@ def run_llm_backend(*, text: str, **kwargs: Any) -> StableBackendResponse:
             base_url=resolved_base_url,
             mode=llm_mode,
             language=kwargs.get("language"),
+            extract_modifiers=extract_modifiers,
+            ontology_profile=ontology_profile,
         ),
     }
     if llm_internal_mode == "whole_document_grounded" and active_extraction_groups:
@@ -1050,70 +1074,73 @@ def run_llm_backend(*, text: str, **kwargs: Any) -> StableBackendResponse:
         result.terms,
         grounded_chunks=grounded_chunks,
         document_text=text,
+        include_modifier_fields=extract_modifiers,
     )
     adapted_family = _adapt_llm_aggregated_terms(
         getattr(result, "family_history_findings", []),
         grounded_chunks=grounded_chunks,
         document_text=text,
+        include_modifier_fields=extract_modifiers,
     )
     adapted_other = _adapt_llm_aggregated_terms(
         getattr(result, "other_person_findings", []),
         grounded_chunks=grounded_chunks,
         document_text=text,
+        include_modifier_fields=extract_modifiers,
     )
     adapted_chunks = _adapt_llm_processed_chunks(grounded_chunks, adapted_terms)
 
-    result_payload = {
-        "meta": {
-            "extraction_backend": "llm",
-            "llm_provider": result.meta.llm_provider,
-            "llm_model": result.meta.llm_model,
-            "llm_mode": result.meta.llm_mode,
-            "llm_internal_mode": llm_internal_mode,
-            "prompt_version": result.meta.prompt_version,
-            "num_processed_chunks": len(adapted_chunks),
-            "num_aggregated_hpo_terms": len(adapted_terms),
-            "token_input": result.meta.token_input,
-            "token_output": result.meta.token_output,
-            "observability": {
-                "request_count": int(result.meta.request_count or 0),
-                # Per-phase wall-clock so the multi-second LLM latency is
-                # explainable (chunking vs phase1 vs phase2a vs phase2b).
-                "phase_timings": phase_timings,
-                **phase_counts,
-                "phase2b_local_accept_count": int(
-                    phase_counts.get("phase2b_local_accept_count", 0) or 0
-                ),
-                "phase2b_deferred_count": int(
-                    phase_counts.get("phase2b_deferred_count", 0) or 0
-                ),
-                "phase2b_no_candidate_skip_count": int(
-                    phase_counts.get("phase2b_no_candidate_skip_count", 0) or 0
-                ),
-                "grounded_chunks": len(grounded_chunks),
-                "extraction_groups": len(active_extraction_groups),
-                "failed_groups": int(phase_counts.get("phase1_failed_groups", 0) or 0),
-                "deduplicated_phase1_mentions": _count_deduplicated_phase1_mentions(
-                    trace
-                ),
-                "deduplicated_unresolved_mappings": _count_deduplicated_mappings(trace),
-                "phase1_completed_groups": int(
-                    phase_counts.get("phase1_completed_groups", 0) or 0
-                ),
-                "phase1_failed_groups": int(
-                    phase_counts.get("phase1_failed_groups", 0) or 0
-                ),
-                "phase1_partial_failures": int(
-                    phase_counts.get("phase1_partial_failures", 0) or 0
-                ),
-                "phase1_requests": int(
-                    phase_request_counts.get("phase1_requests", 0) or 0
-                ),
-                "phase2b_llm_requests": int(
-                    phase_request_counts.get("phase2b_llm_requests", 0) or 0
-                ),
-            },
+    meta_payload: dict[str, Any] = {
+        "extraction_backend": "llm",
+        "llm_provider": result.meta.llm_provider,
+        "llm_model": result.meta.llm_model,
+        "llm_mode": result.meta.llm_mode,
+        "llm_internal_mode": llm_internal_mode,
+        "prompt_version": result.meta.prompt_version,
+        "num_processed_chunks": len(adapted_chunks),
+        "num_aggregated_hpo_terms": len(adapted_terms),
+        "token_input": result.meta.token_input,
+        "token_output": result.meta.token_output,
+        "observability": {
+            "request_count": int(result.meta.request_count or 0),
+            # Per-phase wall-clock so the multi-second LLM latency is
+            # explainable (chunking vs phase1 vs phase2a vs phase2b).
+            "phase_timings": phase_timings,
+            **phase_counts,
+            "phase2b_local_accept_count": int(
+                phase_counts.get("phase2b_local_accept_count", 0) or 0
+            ),
+            "phase2b_deferred_count": int(
+                phase_counts.get("phase2b_deferred_count", 0) or 0
+            ),
+            "phase2b_no_candidate_skip_count": int(
+                phase_counts.get("phase2b_no_candidate_skip_count", 0) or 0
+            ),
+            "grounded_chunks": len(grounded_chunks),
+            "extraction_groups": len(active_extraction_groups),
+            "failed_groups": int(phase_counts.get("phase1_failed_groups", 0) or 0),
+            "deduplicated_phase1_mentions": _count_deduplicated_phase1_mentions(trace),
+            "deduplicated_unresolved_mappings": _count_deduplicated_mappings(trace),
+            "phase1_completed_groups": int(
+                phase_counts.get("phase1_completed_groups", 0) or 0
+            ),
+            "phase1_failed_groups": int(
+                phase_counts.get("phase1_failed_groups", 0) or 0
+            ),
+            "phase1_partial_failures": int(
+                phase_counts.get("phase1_partial_failures", 0) or 0
+            ),
+            "phase1_requests": int(phase_request_counts.get("phase1_requests", 0) or 0),
+            "phase2b_llm_requests": int(
+                phase_request_counts.get("phase2b_llm_requests", 0) or 0
+            ),
         },
+    }
+    if extract_modifiers:
+        meta_payload["extract_modifiers"] = True
+
+    result_payload: dict[str, Any] = {
+        "meta": meta_payload,
         "processed_chunks": adapted_chunks,
         "aggregated_hpo_terms": adapted_terms,
         "family_history_findings": adapted_family,
