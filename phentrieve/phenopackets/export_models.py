@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Self
 
 from phentrieve.assertion_vocab import UNCERTAIN, canonicalize_assertion, is_excluded
+from phentrieve.modifier_models import Modifier, ModifierSegment
 
 AssertionValue = Literal[
     "affirmed",
@@ -136,7 +137,11 @@ class NormalizedSpan:
             raise ValueError("legacy span input must include evidence_text")
 
         start_char = legacy.get("start_char")
+        if start_char is None:
+            start_char = legacy.get("start")
         end_char = legacy.get("end_char")
+        if end_char is None:
+            end_char = legacy.get("end")
         if start_char is None or end_char is None:
             raise ValueError("legacy span input must include start_char and end_char")
 
@@ -156,6 +161,68 @@ class NormalizedSpan:
         )
 
 
+def _normalize_modifier_segment(
+    raw: NormalizedSpan | ModifierSegment | Mapping[str, Any],
+) -> NormalizedSpan:
+    if isinstance(raw, NormalizedSpan):
+        return raw
+    if isinstance(raw, ModifierSegment):
+        return NormalizedSpan(
+            text=raw.text,
+            start_char=raw.start,
+            end_char=raw.end,
+        )
+    if isinstance(raw, Mapping):
+        return NormalizedSpan.from_legacy_dict(raw)
+    raise TypeError(f"Unsupported modifier segment input: {type(raw).__name__}")
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedModifier:
+    """Normalized clinical modifier attached to an exported phenotype record."""
+
+    term_id: str
+    label: str
+    segments: list[NormalizedSpan] = field(default_factory=list)
+    source: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.term_id or not self.label:
+            raise ValueError("NormalizedModifier requires term_id and label")
+
+    @classmethod
+    def from_legacy_dict(
+        cls,
+        legacy: NormalizedModifier | Modifier | Mapping[str, Any],
+    ) -> Self:
+        if isinstance(legacy, cls):
+            return legacy
+        if isinstance(legacy, Modifier):
+            return cls(
+                term_id=legacy.term_id,
+                label=legacy.label,
+                segments=[_normalize_modifier_segment(seg) for seg in legacy.segments],
+                source=legacy.source,
+            )
+        if not isinstance(legacy, Mapping):
+            raise TypeError(f"Unsupported modifier input: {type(legacy).__name__}")
+
+        term_id = legacy.get("term_id") or legacy.get("id")
+        label = legacy.get("label") or legacy.get("name") or legacy.get("term_name")
+        if not term_id or not label:
+            raise ValueError("legacy modifier input must include term_id and label")
+
+        raw_segments = legacy.get("segments") or ()
+        segments = [_normalize_modifier_segment(seg) for seg in raw_segments]
+        source = legacy.get("source")
+        return cls(
+            term_id=str(term_id),
+            label=str(label),
+            segments=segments,
+            source=str(source) if source is not None else None,
+        )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class NormalizedPhenotypeExportRecord:
     """Normalized phenotype record for export and sidecar linkage."""
@@ -171,6 +238,7 @@ class NormalizedPhenotypeExportRecord:
     source_mode: str | None = None
     match_method: str | None = None
     temporality: str | None = None
+    modifiers: list[NormalizedModifier] = field(default_factory=list)
 
     def __init__(
         self,
@@ -187,6 +255,8 @@ class NormalizedPhenotypeExportRecord:
         source_mode: str | None = None,
         match_method: str | None = None,
         temporality: str | None = None,
+        modifiers: Iterable[NormalizedModifier | Modifier | Mapping[str, Any]]
+        | None = None,
     ) -> None:
         if not hpo_id or not label:
             raise ValueError(
@@ -198,6 +268,10 @@ class NormalizedPhenotypeExportRecord:
             if isinstance(span, NormalizedSpan)
             else NormalizedSpan.from_legacy_dict(span)
             for span in (spans or ())
+        ]
+        normalized_modifiers = [
+            NormalizedModifier.from_legacy_dict(modifier)
+            for modifier in (modifiers or ())
         ]
         resolved_chunk_refs = _normalize_chunk_ids(
             chunk_refs if chunk_refs is not None else chunk_ids
@@ -227,6 +301,7 @@ class NormalizedPhenotypeExportRecord:
         object.__setattr__(self, "source_mode", source_mode)
         object.__setattr__(self, "match_method", match_method)
         object.__setattr__(self, "temporality", temporality)
+        object.__setattr__(self, "modifiers", normalized_modifiers)
 
     @property
     def chunk_ids(self) -> list[int]:
@@ -284,6 +359,7 @@ class NormalizedPhenotypeExportRecord:
 
         match_method = legacy.get("match_method") or "legacy_dict"
         temporality = legacy.get("temporality")
+        raw_modifiers = legacy.get("modifiers") or ()
 
         return cls(
             hpo_id=str(hpo_id),
@@ -297,11 +373,13 @@ class NormalizedPhenotypeExportRecord:
             source_mode=str(source_mode) if source_mode is not None else None,
             match_method=str(match_method) if match_method is not None else None,
             temporality=str(temporality) if temporality else None,
+            modifiers=raw_modifiers,
         )
 
 
 __all__ = [
     "AssertionValue",
+    "NormalizedModifier",
     "NormalizedPhenotypeExportRecord",
     "NormalizedSpan",
 ]
