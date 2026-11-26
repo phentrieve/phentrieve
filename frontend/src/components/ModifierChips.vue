@@ -6,30 +6,34 @@
     role="list"
     :aria-label="labelText"
   >
-    <v-chip
+    <span
       v-for="(modifier, idx) in validModifiers"
       :key="`${modifier.term_id}-${idx}`"
-      :size="size"
-      variant="tonal"
-      color="info"
-      label
-      class="modifier-chip"
-      data-testid="modifier-chip"
       role="listitem"
-      :href="hpoTermUrl(modifier.term_id)"
-      target="_blank"
-      rel="noopener noreferrer"
-      :aria-label="modifierAriaLabel(modifier)"
-      @click.stop
+      class="modifier-chip-item d-inline-flex"
     >
-      {{ modifier.label }}
-      <v-tooltip
-        activator="parent"
-        location="top"
-        :text="modifierTooltip(modifier)"
-        :aria-label="modifierTooltip(modifier)"
-      />
-    </v-chip>
+      <v-chip
+        :size="size"
+        variant="tonal"
+        color="info"
+        label
+        class="modifier-chip"
+        data-testid="modifier-chip"
+        :href="hpoTermUrl(modifier.term_id)"
+        target="_blank"
+        rel="noopener noreferrer"
+        :aria-label="modifierAriaLabel(modifier)"
+        @click.stop
+      >
+        {{ modifier.label }}
+        <v-tooltip
+          activator="parent"
+          location="top"
+          :text="modifierTooltip(modifier)"
+          :aria-label="modifierTooltip(modifier)"
+        />
+      </v-chip>
+    </span>
   </div>
 </template>
 

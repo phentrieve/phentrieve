@@ -560,3 +560,144 @@ class TestOntospanExport:
         ann = doc["annotation_set"]["annotations"][0]
         assert ann["mentions"] == []
         assert ann["document_level"] is True
+
+    def test_negated_qualifier_derived_exports_as_document_level_not_source_span(
+        self,
+    ) -> None:
+        text = "Episodic urticaria without angioedema."
+        urticaria_start = text.index("Episodic urticaria")
+        urticaria_end = urticaria_start + len("Episodic urticaria")
+        result = LLMExtractionResult(
+            terms=[
+                LLMPhenotype(
+                    term_id="HP:0100665",
+                    label="Angioedema",
+                    assertion="negated",
+                    experiencer="proband",
+                    temporality="unknown",
+                    match_method="negated_qualifier_derived",
+                    qualifier_surface_text="angioedema",
+                    evidence_records=[
+                        LLMPhenotypeEvidence(
+                            phrase="episodic urticaria",
+                            evidence_text="Episodic urticaria",
+                            chunk_ids=[1],
+                            start_char=urticaria_start,
+                            end_char=urticaria_end,
+                            offset_basis="evidence_in_chunk",
+                        )
+                    ],
+                )
+            ],
+            meta=LLMMeta(llm_model="synthetic-model", llm_mode="two_phase"),
+        )
+
+        doc = export_to_ontospan_document(
+            result,
+            text,
+            document_id="case-004",
+            language="en",
+            hpo_version="2026-01-01",
+            phentrieve_version="0.33.0",
+        )
+        ann = doc["annotation_set"]["annotations"][0]
+        assert ann["mentions"] == []
+        assert ann["document_level"] is True
+        assert ann["axes"]["assertion"]["value"] == "absent"
+
+    def test_hpo_version_defaults_from_db_and_normalizes_leading_v(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "phentrieve.phenopackets.ontospan_export._read_hpo_version_from_db",
+            lambda: "v2026-09-01",
+        )
+        doc = export_to_ontospan_document(
+            [],
+            "Mild tremor.",
+            document_id="case-005",
+            language="en",
+            phentrieve_version="0.33.0",
+        )
+        assert doc["annotation_set"]["layers"][0]["ontology"]["version"] == "2026-09-01"
+
+        explicit = export_to_ontospan_document(
+            [],
+            "Mild tremor.",
+            document_id="case-006",
+            language="en",
+            hpo_version="v2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        assert (
+            explicit["annotation_set"]["layers"][0]["ontology"]["version"]
+            == "v2026-09-01"
+        )
+
+    def test_maps_assertion_synonyms_remaps_crlf_bom_offsets_and_drops_overlapping_mod_seg(
+        self,
+    ) -> None:
+        raw_text = (
+            "\ufeffLine one.\r\nSevere tremor.\r\nPossible ataxia.\r\nDenied fever."
+        )
+        tremor_raw_start = raw_text.index("tremor")
+        tremor_raw_end = tremor_raw_start + len("tremor")
+        severe_raw_start = raw_text.index("Severe")
+        severe_raw_end = severe_raw_start + len("Severe")
+
+        findings = [
+            {
+                "term_id": "HP:0001337",
+                "label": "Tremor",
+                "assertion": "present",
+                "evidence_records": [
+                    {
+                        "start_char": tremor_raw_start,
+                        "end_char": tremor_raw_end,
+                        "evidence_text": "tremor",
+                    }
+                ],
+                "modifiers": [
+                    {
+                        "term_id": "HP:0012828",
+                        "label": "Severe",
+                        "segments": [
+                            {
+                                "start": severe_raw_start,
+                                "end": severe_raw_end,
+                                "text": "Severe",
+                            },
+                            # Overlapping segment must be dropped by export guard.
+                            {
+                                "start": tremor_raw_start,
+                                "end": tremor_raw_end,
+                                "text": "tremor",
+                            },
+                        ],
+                    }
+                ],
+            },
+            {"term_id": "HP:0001251", "label": "Ataxia", "assertion": "possible"},
+            {"term_id": "HP:0001945", "label": "Fever", "assertion": "denied"},
+        ]
+
+        doc = export_to_ontospan_document(
+            findings,
+            raw_text,
+            document_id="case-007",
+            language="en",
+            hpo_version="2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        canonical = doc["document"]["text"]
+        ann_tremor, ann_ataxia, ann_fever = doc["annotation_set"]["annotations"]
+
+        assert ann_tremor["document_level"] is False
+        seg = ann_tremor["mentions"][0]["segments"][0]
+        assert canonical[seg["start"] : seg["end"]] == "tremor"
+        mod_segs = ann_tremor["modifiers"][0]["segments"]
+        assert len(mod_segs) == 1
+        assert canonical[mod_segs[0]["start"] : mod_segs[0]["end"]] == "Severe"
+
+        assert ann_ataxia["axes"]["assertion"]["value"] == "uncertain"
+        assert ann_fever["axes"]["assertion"]["value"] == "absent"

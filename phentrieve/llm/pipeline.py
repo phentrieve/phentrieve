@@ -921,6 +921,7 @@ class TwoPhaseLLMPipeline:
 
         for finding in (*deduped_terms, *deduped_family, *deduped_other_person):
             if finding.modifiers:
+                self._reconcile_post_dedup_spans(finding=finding, text=text)
                 validated_modifiers, mod_warnings = validate_finding_modifiers(
                     finding.modifiers,
                     profile=profile,
@@ -2908,12 +2909,20 @@ class TwoPhaseLLMPipeline:
             modifier_term_ids = term_ids_under_roots(retrieval_roots, guard_map)
 
         phase2a_start = time.perf_counter()
-        batched_results = self._query_batch_hpo_terms(
-            phrases=unique_phrases,
-            language=language,
-            n_results=min(self.n_results_per_phrase, 25),
-            allowed_term_ids=modifier_term_ids,
-        )
+        try:
+            batched_results = self._query_batch_hpo_terms(
+                phrases=unique_phrases,
+                language=language,
+                n_results=min(self.n_results_per_phrase, 25),
+                allowed_term_ids=modifier_term_ids,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Modifier retrieval failed; continuing without modifiers: %s",
+                exc,
+            )
+            outcome.phase2a_seconds = round(time.perf_counter() - phase2a_start, 6)
+            return outcome
         candidates_by_phrase_key: dict[str, list[dict[str, Any]]] = {}
         warnings_by_phrase_key: dict[str, list[OntologyWarning]] = {}
         disallowed_phrase_keys: set[str] = set()
@@ -2935,23 +2944,28 @@ class TwoPhaseLLMPipeline:
                 disallowed_phrase_keys.add(phrase_key)
         outcome.phase2a_seconds = round(time.perf_counter() - phase2a_start, 6)
 
-        # Deduplicate tasks by (phrase_key, finding.term_id, finding.label).
-        TaskKey = tuple[str, str, str]
+        # Deduplicate tasks by (phrase_key, finding.term_id, finding.label, chunk_ids)
+        # so occurrences in distinct chunks retain their own grounded context.
+        TaskKey = tuple[str, str, str, tuple[int, ...]]
         tasks: dict[TaskKey, dict[str, Any]] = {}
         finding_tasks: list[tuple[LLMPhenotype, str, TaskKey]] = []
         for finding in findings:
+            chunk_ids = [
+                cid for record in finding.evidence_records for cid in record.chunk_ids
+            ]
+            chunk_key = tuple(sorted(set(chunk_ids)))
             for raw_phrase in raw_modifiers_by_phenotype.get(id(finding), []):
                 phrase_key = normalize_mapping_phrase_key(raw_phrase)
                 if not phrase_key:
                     continue
-                task_key: TaskKey = (phrase_key, finding.term_id, finding.label)
+                task_key: TaskKey = (
+                    phrase_key,
+                    finding.term_id,
+                    finding.label,
+                    chunk_key,
+                )
                 finding_tasks.append((finding, raw_phrase, task_key))
                 if task_key not in tasks:
-                    chunk_ids = [
-                        cid
-                        for record in finding.evidence_records
-                        for cid in record.chunk_ids
-                    ]
                     primary_ev_text = (
                         finding.evidence_records[0].evidence_text
                         if finding.evidence_records
@@ -3080,11 +3094,34 @@ class TwoPhaseLLMPipeline:
                 0, len(deferred_tasks), self.modifier_mapping_batch_size
             ):
                 batch = deferred_tasks[start : start + self.modifier_mapping_batch_size]
-                mapping_response, batch_usage = run_modifier_mapping_batch(
-                    provider=self.provider,
-                    batch=batch,
-                    mapping_prompt=modifier_mapping_prompt,
-                )
+                try:
+                    mapping_response, batch_usage = run_modifier_mapping_batch(
+                        provider=self.provider,
+                        batch=batch,
+                        mapping_prompt=modifier_mapping_prompt,
+                    )
+                except Exception as exc:
+                    batch_reqs = int(
+                        getattr(self.provider, "last_request_count", 0) or 0
+                    )
+                    outcome.request_count += batch_reqs
+                    outcome.phase2b_llm_requests += batch_reqs
+                    logger.warning(
+                        "Modifier mapping batch failed; continuing without LLM "
+                        "mappings for %d modifier(s): %s",
+                        len(batch),
+                        exc,
+                    )
+                    for mod_item in batch:
+                        llm_trace.append(
+                            {
+                                "phrase": mod_item["phrase"],
+                                "finding_term_id": mod_item["finding_term"]["id"],
+                                "term_id": None,
+                                "error": type(exc).__name__,
+                            }
+                        )
+                    continue
                 batch_reqs = int(getattr(self.provider, "last_request_count", 0) or 0)
                 outcome.request_count += batch_reqs
                 outcome.phase2b_llm_requests += batch_reqs
@@ -3367,6 +3404,71 @@ class TwoPhaseLLMPipeline:
                 )
 
     @staticmethod
+    def _reconcile_post_dedup_spans(
+        *,
+        finding: LLMPhenotype,
+        text: str,
+    ) -> None:
+        """Ensure finding evidence spans and modifier segments stay disjoint after dedup.
+
+        When ``_deduplicate_terms`` merges two mentions of the same finding (one
+        carved and one uncarved), an inherited evidence record could overlap a
+        surviving modifier segment. Re-carve any overlapping located evidence
+        record, or drop modifier segments that still overlap an uncarvable span.
+        """
+        located_records = [
+            ev
+            for ev in finding.evidence_records
+            if ev.start_char is not None
+            and ev.end_char is not None
+            and ev.offset_basis != "chunk_span"
+        ]
+        if not located_records or not finding.modifiers:
+            return
+
+        updated_modifiers: list[Modifier] = []
+        for modifier in finding.modifiers:
+            kept_segments: list[ModifierSegment] = []
+            for seg in modifier.segments:
+                seg_valid = True
+                for ev in located_records:
+                    if ev.start_char is None or ev.end_char is None:
+                        continue
+                    if seg.end <= ev.start_char or seg.start >= ev.end_char:
+                        continue
+                    if text and 0 <= ev.start_char < ev.end_char <= len(text):
+                        new_span, keep = carve_modifier_span(
+                            text, (ev.start_char, ev.end_char), (seg.start, seg.end)
+                        )
+                        if keep:
+                            if new_span != (ev.start_char, ev.end_char):
+                                ev.start_char, ev.end_char = new_span
+                                ev.evidence_text = text[new_span[0] : new_span[1]]
+                            continue
+                    seg_valid = False
+                    break
+                if seg_valid:
+                    kept_segments.append(seg)
+            if len(kept_segments) != len(modifier.segments):
+                updated_modifiers.append(
+                    modifier.model_copy(update={"segments": kept_segments})
+                )
+            else:
+                updated_modifiers.append(modifier)
+        finding.modifiers = updated_modifiers
+
+        deduped_records = []
+        seen_spans: set[tuple[int | None, int | None, str | None]] = set()
+        for ev in finding.evidence_records:
+            key = (ev.start_char, ev.end_char, ev.offset_basis)
+            if ev.start_char is not None and ev.end_char is not None:
+                if key in seen_spans:
+                    continue
+                seen_spans.add(key)
+            deduped_records.append(ev)
+        finding.evidence_records = deduped_records
+
+    @staticmethod
     def _terms_are_colocated(first: LLMPhenotype, second: LLMPhenotype) -> bool:
         first_chunks = {
             cid for record in first.evidence_records for cid in record.chunk_ids
@@ -3377,10 +3479,18 @@ class TwoPhaseLLMPipeline:
         if first_chunks and second_chunks and (first_chunks & second_chunks):
             return True
         for rec_a in first.evidence_records:
-            if rec_a.start_char is None or rec_a.end_char is None:
+            if (
+                rec_a.start_char is None
+                or rec_a.end_char is None
+                or rec_a.offset_basis == "chunk_span"
+            ):
                 continue
             for rec_b in second.evidence_records:
-                if rec_b.start_char is None or rec_b.end_char is None:
+                if (
+                    rec_b.start_char is None
+                    or rec_b.end_char is None
+                    or rec_b.offset_basis == "chunk_span"
+                ):
                     continue
                 if (
                     rec_a.start_char <= rec_b.end_char + 2
@@ -3411,7 +3521,9 @@ class TwoPhaseLLMPipeline:
             (
                 ev
                 for ev in target.evidence_records
-                if ev.start_char is not None and ev.end_char is not None
+                if ev.start_char is not None
+                and ev.end_char is not None
+                and ev.offset_basis != "chunk_span"
             ),
             None,
         )

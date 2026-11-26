@@ -300,6 +300,7 @@ class EvidenceLocator:
         *,
         anchor_span: tuple[int, int] | None = None,
         include_neighbors: bool = True,
+        require_word_boundaries: bool = True,
     ) -> EvidenceSpan:
         """Locate ``evidence_text`` verbatim, preferring the match nearest ``anchor_span``.
 
@@ -307,6 +308,9 @@ class EvidenceLocator:
         cited chunks, then immediate neighbor chunks when ``include_neighbors``
         is True). Unlike ``locate()``, never falls back to ``chunk_span`` so a
         modifier quote that cannot be found verbatim stays ``unresolved``.
+        When ``require_word_boundaries`` is True (default), mid-word substring
+        matches (for example an uninflected stem inside an inflected token) are
+        rejected so modifier spans never split words.
         """
         if not evidence_text or not evidence_text.strip():
             return EvidenceSpan(None, None, "unresolved")
@@ -370,13 +374,27 @@ class EvidenceLocator:
         if not matches:
             return EvidenceSpan(None, None, "unresolved")
 
-        if anchor_span is None or len(matches) == 1:
-            best = matches[0]
+        def _is_bounded(entry: tuple[int, int, OffsetBasis]) -> bool:
+            return _is_word_boundary(self._document, entry[0]) and _is_word_boundary(
+                self._document, entry[1]
+            )
+
+        if anchor_span is None:
+            candidates = (
+                [m for m in matches if _is_bounded(m)]
+                if require_word_boundaries
+                else matches
+            )
+            if not candidates:
+                return EvidenceSpan(None, None, "unresolved")
+            best = candidates[0]
             return EvidenceSpan(best[0], best[1], best[2])
 
         a_start, a_end = anchor_span
 
-        def _distance_key(entry: tuple[int, int, OffsetBasis]) -> tuple[int, int, int]:
+        def _distance_key(
+            entry: tuple[int, int, OffsetBasis],
+        ) -> tuple[int, int, int, int]:
             m_start, m_end, _ = entry
             if m_end <= a_start:
                 gap = a_start - m_end
@@ -385,9 +403,11 @@ class EvidenceLocator:
             else:
                 gap = 0
             center_distance = abs((m_start + m_end) - (a_start + a_end))
-            return (gap, center_distance, m_start)
+            return (gap, 0 if _is_bounded(entry) else 1, center_distance, m_start)
 
         best = min(matches, key=_distance_key)
+        if require_word_boundaries and not _is_bounded(best):
+            return EvidenceSpan(None, None, "unresolved")
         return EvidenceSpan(best[0], best[1], best[2])
 
 

@@ -8,8 +8,10 @@ import unicodedata
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from phentrieve.assertion_vocab import UNCERTAIN, canonicalize_assertion, is_excluded
 from phentrieve.config import PHENOTYPE_ROOT
 from phentrieve.llm.types import LLMExtractionResult
 
@@ -45,6 +47,71 @@ def canonicalize_text(raw: str) -> str:
     return unicodedata.normalize("NFC", normalized)
 
 
+def _build_raw_to_canonical_offsets(raw: str) -> list[int]:
+    """Map each raw codepoint index (0..len(raw)) to its index in canonicalize_text(raw)."""
+    raw_len = len(raw)
+    offsets = [0] * (raw_len + 1)
+    idx = 0
+    while idx < raw_len and raw[idx] == _UTF8_BOM:
+        offsets[idx] = 0
+        idx += 1
+
+    canon_pos = 0
+    while idx < raw_len:
+        if raw[idx] == "\r":
+            offsets[idx] = canon_pos
+            if idx + 1 < raw_len and raw[idx + 1] == "\n":
+                offsets[idx + 1] = canon_pos
+                idx += 2
+            else:
+                idx += 1
+            canon_pos += 1
+            continue
+        end = idx + 1
+        while end < raw_len and unicodedata.combining(raw[end]):
+            end += 1
+        cluster = unicodedata.normalize("NFC", raw[idx:end])
+        for pos in range(idx, end):
+            offsets[pos] = canon_pos
+        canon_pos += len(cluster)
+        idx = end
+    offsets[raw_len] = canon_pos
+    return offsets
+
+
+def _resolve_span_in_canonical(
+    start: int,
+    end: int,
+    declared_text: str | None,
+    canonical_doc: str,
+    raw_to_canonical: list[int] | None,
+) -> tuple[int, int, str] | None:
+    """Resolve ``(start, end)`` against ``canonical_doc``, remapping raw offsets if needed."""
+    doc_len = len(canonical_doc)
+    if 0 <= start < end <= doc_len:
+        direct_slice = canonical_doc[start:end]
+        if direct_slice and (
+            declared_text is None
+            or declared_text == direct_slice
+            or canonicalize_text(declared_text) == direct_slice
+        ):
+            return start, end, direct_slice
+
+    if raw_to_canonical is not None and 0 <= start < end < len(raw_to_canonical):
+        c_start = raw_to_canonical[start]
+        c_end = raw_to_canonical[end]
+        if 0 <= c_start < c_end <= doc_len:
+            mapped_slice = canonical_doc[c_start:c_end]
+            if mapped_slice and (
+                declared_text is None
+                or declared_text == mapped_slice
+                or canonicalize_text(declared_text) == mapped_slice
+            ):
+                return c_start, c_end, mapped_slice
+
+    return None
+
+
 def compute_text_sha256(text: str) -> str:
     """Compute SHA-256 hex digest of UTF-8 bytes."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -68,7 +135,13 @@ def _map_assertion(finding: Any) -> str:
         return "absent"
     raw = _get_field(finding, "assertion", "assertion_status", "status")
     normalized = str(raw).strip().lower() if raw is not None else "present"
-    return _ASSERTION_MAP.get(normalized, "present")
+    if normalized in _ASSERTION_MAP:
+        return _ASSERTION_MAP[normalized]
+    if is_excluded(normalized):
+        return "absent"
+    if canonicalize_assertion(normalized) == UNCERTAIN:
+        return "uncertain"
+    return "present"
 
 
 def _map_experiencer(finding: Any, default_experiencer: str = "proband") -> str:
@@ -89,11 +162,19 @@ def _is_valid_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _extract_mentions(finding: Any, canonical_doc: str) -> list[dict[str, Any]]:
+def _extract_mentions(
+    finding: Any,
+    canonical_doc: str,
+    raw_to_canonical: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    # A ``negated_qualifier_derived`` finding inherits its source finding's
+    # evidence records purely for chunk provenance (B3/F5); exporting them
+    # would point at the source finding rather than the derived exclusion.
+    if _get_field(finding, "match_method") == "negated_qualifier_derived":
+        return []
     raw_records = _get_field(finding, "evidence_records", "spans", default=()) or ()
     mentions: list[dict[str, Any]] = []
     seen_ranges: set[tuple[int, int]] = set()
-    doc_len = len(canonical_doc)
 
     for record in raw_records:
         # A ``chunk_span`` fallback covers the whole cited chunk rather than a
@@ -104,32 +185,42 @@ def _extract_mentions(finding: Any, canonical_doc: str) -> list[dict[str, Any]]:
         end = _get_field(record, "end_char", "end")
         if not (_is_valid_int(start) and _is_valid_int(end)):
             continue
-        if start < 0 or end <= start or end > doc_len:
+        declared_raw = _get_field(record, "evidence_text", "text")
+        declared_text = str(declared_raw) if declared_raw is not None else None
+        resolved = _resolve_span_in_canonical(
+            start, end, declared_text, canonical_doc, raw_to_canonical
+        )
+        if resolved is None:
             continue
-        exact_slice = canonical_doc[start:end]
-        if not exact_slice:
-            continue
-        declared_text = _get_field(record, "evidence_text", "text")
-        if declared_text is not None and str(declared_text) != exact_slice:
-            continue
-        span_key = (start, end)
+        c_start, c_end, exact_slice = resolved
+        span_key = (c_start, c_end)
         if span_key in seen_ranges:
             continue
         seen_ranges.add(span_key)
         mentions.append(
             {
-                "segments": [{"start": start, "end": end, "text": exact_slice}],
+                "segments": [{"start": c_start, "end": c_end, "text": exact_slice}],
                 "cue_segments": [],
             }
         )
     return mentions
 
 
-def _extract_modifiers(finding: Any, canonical_doc: str) -> list[dict[str, Any]]:
+def _extract_modifiers(
+    finding: Any,
+    canonical_doc: str,
+    *,
+    mentions: Sequence[Mapping[str, Any]] = (),
+    raw_to_canonical: list[int] | None = None,
+) -> list[dict[str, Any]]:
     raw_modifiers = _get_field(finding, "modifiers", default=()) or ()
     exported: list[dict[str, Any]] = []
     seen_term_ids: set[str] = set()
-    doc_len = len(canonical_doc)
+    mention_ranges: list[tuple[int, int]] = [
+        (int(seg["start"]), int(seg["end"]))
+        for mention in mentions
+        for seg in mention.get("segments", ())
+    ]
 
     for modifier in raw_modifiers:
         term_id = _get_field(modifier, "term_id", "id")
@@ -148,14 +239,18 @@ def _extract_modifiers(finding: Any, canonical_doc: str) -> list[dict[str, Any]]
             text = _get_field(seg, "text", "evidence_text")
             if not (_is_valid_int(start) and _is_valid_int(end)):
                 continue
-            if start < 0 or end <= start or end > doc_len:
+            declared_text = str(text) if text is not None else None
+            resolved = _resolve_span_in_canonical(
+                start, end, declared_text, canonical_doc, raw_to_canonical
+            )
+            if resolved is None:
                 continue
-            exact_slice = canonical_doc[start:end]
-            if text is not None and str(text) != exact_slice:
+            c_start, c_end, exact_slice = resolved
+            if any(
+                c_start < m_end and m_start < c_end for m_start, m_end in mention_ranges
+            ):
                 continue
-            if not exact_slice:
-                continue
-            candidates.append((start, end, exact_slice))
+            candidates.append((c_start, c_end, exact_slice))
 
         candidates.sort(key=lambda item: (item[0], item[1]))
         valid_segments: list[dict[str, Any]] = []
@@ -210,6 +305,41 @@ def _resolve_phentrieve_version(phentrieve_version: str | None) -> str:
         return "unknown"
 
 
+def _read_hpo_version_from_db() -> str:
+    """Read HPO version from local SQLite DB without importing protobuf deps."""
+    try:
+        from phentrieve.config import DEFAULT_HPO_DB_FILENAME
+        from phentrieve.data_processing.hpo_database import HPODatabase
+        from phentrieve.utils import get_default_data_dir
+
+        package_root = Path(__file__).resolve().parents[2]
+        candidates = (
+            get_default_data_dir() / DEFAULT_HPO_DB_FILENAME,
+            Path.cwd() / "data" / DEFAULT_HPO_DB_FILENAME,
+            package_root / "data" / DEFAULT_HPO_DB_FILENAME,
+        )
+        db_file = next((path for path in candidates if path.exists()), None)
+        if db_file is None:
+            return "unknown"
+        with HPODatabase(db_file) as db:
+            return db.get_metadata("hpo_version") or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _resolve_hpo_version(hpo_version: str | None) -> str:
+    if hpo_version is not None:
+        return hpo_version
+    resolved = _read_hpo_version_from_db()
+    if not resolved or resolved == "unknown":
+        return "unknown"
+    # Match hp.json release identifiers (e.g. "2026-09-01") when DB metadata
+    # carries a leading "v" prefix ("v2026-09-01").
+    if len(resolved) > 1 and resolved[0] in ("v", "V") and resolved[1].isdigit():
+        return resolved[1:]
+    return resolved
+
+
 def export_to_ontospan_document(
     findings: LLMExtractionResult | Sequence[Any],
     document_text: str,
@@ -218,7 +348,7 @@ def export_to_ontospan_document(
     language: str = "en",
     annotation_set_id: str | None = None,
     subject_id: str | None = None,
-    hpo_version: str = "unknown",
+    hpo_version: str | None = None,
     finding_roots: Sequence[str] = (PHENOTYPE_ROOT,),
     actor_id: str = "phentrieve",
     actor_name: str = "phentrieve",
@@ -232,10 +362,16 @@ def export_to_ontospan_document(
 ) -> dict[str, Any]:
     """Export Phentrieve findings into an ontospan 1.2.0 AnnotatedDocument dict."""
     canonical_doc = canonicalize_text(document_text)
+    raw_to_canonical = (
+        _build_raw_to_canonical_offsets(document_text)
+        if document_text != canonical_doc
+        else None
+    )
     doc_sha256 = compute_text_sha256(canonical_doc)
     collected_findings, inferred_model = _collect_findings(findings)
     resolved_model = model if model is not None else inferred_model
     resolved_version = _resolve_phentrieve_version(phentrieve_version)
+    resolved_hpo_version = _resolve_hpo_version(hpo_version)
 
     actor: dict[str, Any] = {
         "actor_id": actor_id,
@@ -253,9 +389,14 @@ def export_to_ontospan_document(
         term_id = _get_field(finding, "term_id", "hpo_id", "id")
         if not term_id:
             continue
-        mentions = _extract_mentions(finding, canonical_doc)
+        mentions = _extract_mentions(finding, canonical_doc, raw_to_canonical)
         document_level = len(mentions) == 0
-        modifiers = _extract_modifiers(finding, canonical_doc)
+        modifiers = _extract_modifiers(
+            finding,
+            canonical_doc,
+            mentions=mentions,
+            raw_to_canonical=raw_to_canonical,
+        )
         annotations.append(
             {
                 "annotation_id": f"ann-{index:04d}",
@@ -311,7 +452,7 @@ def export_to_ontospan_document(
                     "profile": profile,
                     "ontology": {
                         "id": ontology_id,
-                        "version": hpo_version,
+                        "version": resolved_hpo_version,
                     },
                     "allowed_roots": list(finding_roots),
                 }

@@ -239,11 +239,24 @@ function parseScoreValue(value) {
   return null;
 }
 
+function matchingResponseDetails(term) {
+  if (term?.origin === 'manual') {
+    return null;
+  }
+  const details = detailsByHpoId.value.get(term.hpo_id);
+  if (!details) {
+    return null;
+  }
+  const termStatus = normalizeAssertionStatus(term.status, term.excluded);
+  const detailStatus = normalizeAssertionStatus(details.status, details.excluded);
+  return termStatus === detailStatus ? details : null;
+}
+
 function resolveTermModifiers(term) {
   if (Array.isArray(term.modifiers) && term.modifiers.length > 0) {
     return term.modifiers;
   }
-  const details = detailsByHpoId.value.get(term.hpo_id);
+  const details = matchingResponseDetails(term);
   return Array.isArray(details?.modifiers) ? details.modifiers : [];
 }
 
@@ -251,7 +264,7 @@ function resolveTermWarnings(term) {
   if (Array.isArray(term.warnings) && term.warnings.length > 0) {
     return term.warnings;
   }
-  const details = detailsByHpoId.value.get(term.hpo_id);
+  const details = matchingResponseDetails(term);
   return Array.isArray(details?.warnings) ? details.warnings : [];
 }
 

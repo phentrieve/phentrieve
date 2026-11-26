@@ -223,7 +223,17 @@ class LLMExtractedPhenotypesWithModifiers(BaseModel):
     )
 
 
+_EVIDENCE_TEXT_DESCRIPTION = (
+    "Short verbatim quote copied directly from the cited chunk(s) supporting "
+    "this finding in the note's original language (do not omit)."
+)
+
+
 class LLMGroundedExtractedPhenotypeWithModifiers(LLMGroundedExtractedPhenotype):
+    evidence_text: str | None = Field(
+        default=None,
+        description=_EVIDENCE_TEXT_DESCRIPTION,
+    )
     modifiers: list[str] = Field(
         default_factory=list,
         description=_MODIFIERS_DESCRIPTION,

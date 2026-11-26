@@ -69,8 +69,16 @@ def orchestrate_index_building(
     """
     start_time = time.time()
     index_type = "multi_vector" if multi_vector else "single_vector"
+    if index_roots is None:
+        from phentrieve.ontology_profiles import get_default_ontology_profile
+
+        effective_roots: Sequence[str] = (
+            get_default_ontology_profile().roots.index_roots
+        )
+    else:
+        effective_roots = index_roots
     normalized_index_roots = tuple(
-        sorted({root.strip() for root in (index_roots or ()) if root and root.strip()})
+        sorted({root.strip() for root in effective_roots if root and root.strip()})
     )
 
     data_dir = resolve_data_path(data_dir_override, "data_dir", get_default_data_dir)

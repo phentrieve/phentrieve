@@ -463,14 +463,42 @@ export function deriveFindingsFromAnnotations(annotations) {
         confidence: ann.confidence ?? null,
         origin: ann.origin,
         ...(Array.isArray(ann.modifiers) && ann.modifiers.length > 0
-          ? { modifiers: ann.modifiers }
+          ? { modifiers: [...ann.modifiers] }
           : {}),
         ...(Array.isArray(ann.warnings) && ann.warnings.length > 0
-          ? { warnings: ann.warnings }
+          ? { warnings: [...ann.warnings] }
           : {}),
       });
-    } else if (ann.origin === 'manual') {
-      existing.origin = 'manual';
+    } else {
+      if (ann.origin === 'manual') {
+        existing.origin = 'manual';
+      }
+      if (Array.isArray(ann.modifiers) && ann.modifiers.length > 0) {
+        const current = Array.isArray(existing.modifiers) ? existing.modifiers : [];
+        const seenModIds = new Set(current.map((m) => m?.term_id).filter(Boolean));
+        const merged = [...current];
+        ann.modifiers.forEach((mod) => {
+          if (mod?.term_id && !seenModIds.has(mod.term_id)) {
+            seenModIds.add(mod.term_id);
+            merged.push(mod);
+          }
+        });
+        existing.modifiers = merged;
+      }
+      if (Array.isArray(ann.warnings) && ann.warnings.length > 0) {
+        const current = Array.isArray(existing.warnings) ? existing.warnings : [];
+        const warnKey = (w) => `${w?.code || ''}|${w?.term_id || ''}|${w?.message || ''}`;
+        const seenWarnKeys = new Set(current.map(warnKey));
+        const merged = [...current];
+        ann.warnings.forEach((warning) => {
+          const key = warnKey(warning);
+          if (!seenWarnKeys.has(key)) {
+            seenWarnKeys.add(key);
+            merged.push(warning);
+          }
+        });
+        existing.warnings = merged;
+      }
     }
   });
 

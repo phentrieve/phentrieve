@@ -76,6 +76,9 @@ TEST_GUARD_MAP: dict[str, frozenset[str]] = {
     "HP:0012833": frozenset({"HP:0000001", HPO_CLINICAL_MODIFIER_ROOT}),  # Unilateral
     "HP:0012832": frozenset({"HP:0000001", HPO_CLINICAL_MODIFIER_ROOT}),  # Bilateral
     "HP:0003676": frozenset({"HP:0000001", HPO_CLINICAL_MODIFIER_ROOT}),  # Progressive
+    "HP:0003621": frozenset(
+        {"HP:0000001", HPO_CLINICAL_MODIFIER_ROOT}
+    ),  # Juvenile onset
     "HP:0003826": frozenset({"HP:0000001", HPO_CLINICAL_MODIFIER_ROOT}),  # Stillbirth
     # Frequency branch (disallowed as individual clinical modifier)
     "HP:0040281": frozenset({"HP:0000001", HPO_FREQUENCY_ROOT}),  # Very frequent
@@ -625,9 +628,9 @@ def test_no_double_encoding_deterministic_and_explicit_null(
     assert result.terms[0].modifiers == []
     assert result.meta.phase_counts["modifier_suppressed_double_encoding"] == 1
 
-    # 2) LLM explicit null suppression (cross-lingual / non-lexical double encoding):
-    # "beidseitig" on "Bipedal edema" -> LLM receives finding_term and returns explicit null.
-    text2 = "Patient has beidseitig edema."
+    # 2) LLM explicit null suppression (semantic / non-lexical double encoding):
+    # "both feet" on "Bipedal edema" -> LLM receives finding_term and returns explicit null.
+    text2 = "Patient has edema of both feet."
     provider2 = _FakeProvider(
         [
             LLMGroundedExtractedPhenotypesWithModifiers.model_validate(
@@ -635,17 +638,15 @@ def test_no_double_encoding_deterministic_and_explicit_null(
                     "phenotypes": [
                         {
                             "phrase": "bipedal edema",
-                            "evidence_text": "beidseitig edema",
-                            "modifiers": ["beidseitig"],
+                            "evidence_text": "edema of both feet",
+                            "modifiers": ["both feet"],
                             "category": "Abnormal",
                             "chunk_ids": [1],
                         }
                     ]
                 }
             ),
-            LLMMappingSelection.model_validate(
-                {"phrase": "beidseitig", "hpo_id": None}
-            ),
+            LLMMappingSelection.model_validate({"phrase": "both feet", "hpo_id": None}),
         ]
     )
     executor2 = _FakeToolExecutor(
@@ -653,7 +654,7 @@ def test_no_double_encoding_deterministic_and_explicit_null(
             "bipedal edema": [
                 {"hpo_id": "HP:0000969", "term_name": "Bipedal edema", "score": 0.95}
             ],
-            "beidseitig": [
+            "both feet": [
                 {"hpo_id": "HP:0012832", "term_name": "Bilateral", "score": 0.80}
             ],
         }
@@ -1064,3 +1065,268 @@ def test_chunk_span_fallback_is_not_carved_into_fake_evidence_text(
     assert [(s.start, s.end, s.text) for s in finding.modifiers[0].segments] == [
         (text.index("mild"), text.index("mild") + len("mild"), "mild")
     ]
+
+
+def test_converted_modifier_finding_does_not_carve_chunk_span_target() -> None:
+    """Converting a standalone modifier must not carve a ``chunk_span`` target."""
+    text = "The patient has mild hearing loss."
+    target = LLMPhenotype(
+        term_id="HP:0000365",
+        label="Hearing impairment",
+        evidence="hearing loss",
+        evidence_records=[
+            LLMPhenotypeEvidence(
+                phrase="hearing loss",
+                evidence_text=None,
+                chunk_ids=[1],
+                start_char=0,
+                end_char=len(text),
+                offset_basis="chunk_span",
+            )
+        ],
+    )
+    mod_start = text.index("mild")
+    mod_term = LLMPhenotype(
+        term_id="HP:0012825",
+        label="Mild",
+        evidence="mild",
+        evidence_records=[
+            LLMPhenotypeEvidence(
+                phrase="mild",
+                evidence_text="mild",
+                chunk_ids=[1],
+                start_char=mod_start,
+                end_char=mod_start + len("mild"),
+                offset_basis="evidence_in_chunk",
+            )
+        ],
+    )
+
+    TwoPhaseLLMPipeline._attach_converted_modifier_finding(
+        mod_term=mod_term,
+        target=target,
+        text=text,
+    )
+
+    ev = target.evidence_records[0]
+    assert ev.offset_basis == "chunk_span"
+    assert ev.evidence_text is None
+    assert (ev.start_char, ev.end_char) == (0, len(text))
+    assert [m.term_id for m in target.modifiers] == ["HP:0012825"]
+    assert [(s.start, s.end, s.text) for s in target.modifiers[0].segments] == [
+        (mod_start, mod_start + len("mild"), "mild")
+    ]
+
+
+def test_modifier_locator_rejects_mid_word_inflection_substring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uninflected stem matching inside an inflected token must not split a word."""
+    _patch_guard(monkeypatch)
+    text = "Patient presents with severely impaired hearing."
+    provider = _FakeProvider(
+        [
+            LLMGroundedExtractedPhenotypesWithModifiers.model_validate(
+                {
+                    "phenotypes": [
+                        {
+                            "phrase": "hearing impairment",
+                            "evidence_text": "severely impaired hearing",
+                            "modifiers": ["severe"],
+                            "category": "Abnormal",
+                            "chunk_ids": [1],
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+    executor = _FakeToolExecutor(
+        {
+            "hearing impairment": [
+                {
+                    "hpo_id": "HP:0000365",
+                    "term_name": "Hearing impairment",
+                    "score": 0.96,
+                }
+            ],
+            "severe": [{"hpo_id": "HP:0012828", "term_name": "Severe", "score": 0.98}],
+        }
+    )
+    pipeline = TwoPhaseLLMPipeline(provider=provider, tool_executor=executor)
+    result = pipeline.run(
+        text=text,
+        grounded_chunks=_single_chunk(text),
+        config=LLMPipelineConfig(model="test-model", extract_modifiers=True),
+    )
+
+    finding = result.terms[0]
+    assert finding.evidence_records[0].evidence_text == "severely impaired hearing"
+    assert [m.term_id for m in finding.modifiers] == ["HP:0012828"]
+    assert finding.modifiers[0].segments == []
+
+
+def test_modifier_batch_failure_degrades_gracefully_without_losing_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exception during modifier mapping must preserve already-resolved findings."""
+    _patch_guard(monkeypatch)
+    text = "Patient has worsening hearing loss."
+
+    class _FailingModifierProvider(_FakeProvider):
+        def run_structured_prompt(self, **kwargs: Any) -> Any:
+            if kwargs.get("response_model") is LLMMappingSelection:
+                raise RuntimeError("transient 503 during modifier batch")
+            return super().run_structured_prompt(**kwargs)
+
+    provider = _FailingModifierProvider(
+        [
+            LLMGroundedExtractedPhenotypesWithModifiers.model_validate(
+                {
+                    "phenotypes": [
+                        {
+                            "phrase": "hearing impairment",
+                            "evidence_text": "worsening hearing loss",
+                            "modifiers": ["worsening"],
+                            "category": "Abnormal",
+                            "chunk_ids": [1],
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    executor = _FakeToolExecutor(
+        {
+            "hearing impairment": [
+                {
+                    "hpo_id": "HP:0000365",
+                    "term_name": "Hearing impairment",
+                    "score": 0.96,
+                }
+            ],
+            "worsening": [
+                {"hpo_id": "HP:0003676", "term_name": "Progressive", "score": 0.77}
+            ],
+        }
+    )
+    pipeline = TwoPhaseLLMPipeline(provider=provider, tool_executor=executor)
+    result = pipeline.run(
+        text=text,
+        grounded_chunks=_single_chunk(text),
+        config=LLMPipelineConfig(model="test-model", extract_modifiers=True),
+    )
+
+    assert len(result.terms) == 1
+    assert result.terms[0].term_id == "HP:0000365"
+    assert result.terms[0].modifiers == []
+
+
+def test_post_dedup_span_reconciliation_prevents_overlap_after_merging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Merging a carved and uncarved duplicate mention must keep spans disjoint."""
+    _patch_guard(monkeypatch)
+    text = "Severe seizures noted."
+    provider = _FakeProvider(
+        [
+            LLMGroundedExtractedPhenotypesWithModifiers.model_validate(
+                {
+                    "phenotypes": [
+                        {
+                            "phrase": "seizure",
+                            "evidence_text": "Severe seizures",
+                            "modifiers": ["Severe"],
+                            "category": "Abnormal",
+                            "chunk_ids": [1],
+                        },
+                        {
+                            "phrase": "seizure",
+                            "evidence_text": "Severe seizures",
+                            "modifiers": [],
+                            "category": "Abnormal",
+                            "chunk_ids": [1],
+                        },
+                    ]
+                }
+            )
+        ]
+    )
+    executor = _FakeToolExecutor(
+        {
+            "seizure": [
+                {"hpo_id": "HP:0001250", "term_name": "Seizure", "score": 0.98}
+            ],
+            "severe": [{"hpo_id": "HP:0012828", "term_name": "Severe", "score": 0.99}],
+        }
+    )
+    pipeline = TwoPhaseLLMPipeline(provider=provider, tool_executor=executor)
+    result = pipeline.run(
+        text=text,
+        grounded_chunks=_single_chunk(text),
+        config=LLMPipelineConfig(model="test-model", extract_modifiers=True),
+    )
+
+    assert len(result.terms) == 1
+    finding = result.terms[0]
+    assert len(finding.modifiers) == 1
+    mod_seg = finding.modifiers[0].segments[0]
+    assert (mod_seg.start, mod_seg.end, mod_seg.text) == (0, 6, "Severe")
+    for ev in finding.evidence_records:
+        assert ev.start_char is not None and ev.end_char is not None
+        _assert_no_overlap((ev.start_char, ev.end_char), (mod_seg.start, mod_seg.end))
+
+
+def test_terms_are_colocated_ignores_adjacent_chunk_span_fallbacks() -> None:
+    """Adjacent chunk_span fallbacks in different chunks are not colocated."""
+    first = LLMPhenotype(
+        term_id="HP:0012825",
+        label="Mild",
+        evidence="mild",
+        evidence_records=[
+            LLMPhenotypeEvidence(
+                phrase="mild",
+                evidence_text=None,
+                chunk_ids=[1],
+                start_char=0,
+                end_char=50,
+                offset_basis="chunk_span",
+            )
+        ],
+    )
+    second = LLMPhenotype(
+        term_id="HP:0001250",
+        label="Seizure",
+        evidence="seizure",
+        evidence_records=[
+            LLMPhenotypeEvidence(
+                phrase="seizure",
+                evidence_text=None,
+                chunk_ids=[2],
+                start_char=51,
+                end_char=100,
+                offset_basis="chunk_span",
+            )
+        ],
+    )
+    assert TwoPhaseLLMPipeline._terms_are_colocated(first, second) is False
+
+
+def test_grounded_modifier_schema_describes_evidence_text_without_changing_base() -> (
+    None
+):
+    """Only the modifier schema adds the ``evidence_text`` description."""
+    from phentrieve.llm.types import (
+        LLMGroundedExtractedPhenotype,
+        LLMGroundedExtractedPhenotypeWithModifiers,
+    )
+
+    base_prop = LLMGroundedExtractedPhenotype.model_json_schema()["properties"][
+        "evidence_text"
+    ]
+    mod_prop = LLMGroundedExtractedPhenotypeWithModifiers.model_json_schema()[
+        "properties"
+    ]["evidence_text"]
+
+    assert "description" not in base_prop
+    assert "verbatim quote" in mod_prop["description"]
