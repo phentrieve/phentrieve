@@ -13,6 +13,7 @@ from typing import Any
 
 from phentrieve.assertion_vocab import UNCERTAIN, canonicalize_assertion, is_excluded
 from phentrieve.config import PHENOTYPE_ROOT
+from phentrieve.llm.evidence_offsets import _normalized as _normalize_for_match
 from phentrieve.llm.types import LLMExtractionResult
 
 ONTOSPAN_SCHEMA_VERSION = "1.2.0"
@@ -47,6 +48,23 @@ def canonicalize_text(raw: str) -> str:
     return unicodedata.normalize("NFC", normalized)
 
 
+def _is_hangul_l(ch: str) -> bool:
+    return 0x1100 <= ord(ch) <= 0x1112
+
+
+def _is_hangul_v(ch: str) -> bool:
+    return 0x1161 <= ord(ch) <= 0x1175
+
+
+def _is_hangul_t(ch: str) -> bool:
+    return 0x11A8 <= ord(ch) <= 0x11C2
+
+
+def _is_hangul_lv(ch: str) -> bool:
+    cp = ord(ch)
+    return 0xAC00 <= cp <= 0xD7A3 and (cp - 0xAC00) % 28 == 0
+
+
 def _build_raw_to_canonical_offsets(raw: str) -> list[int]:
     """Map each raw codepoint index (0..len(raw)) to its index in canonicalize_text(raw)."""
     raw_len = len(raw)
@@ -68,6 +86,14 @@ def _build_raw_to_canonical_offsets(raw: str) -> list[int]:
             canon_pos += 1
             continue
         end = idx + 1
+        # Extend across Hangul Jamo composition sequences (L+V(+T) or LV+T)
+        # which compose under NFC despite having combining class 0.
+        if _is_hangul_l(raw[idx]) and end < raw_len and _is_hangul_v(raw[end]):
+            end += 1
+            if end < raw_len and _is_hangul_t(raw[end]):
+                end += 1
+        elif _is_hangul_lv(raw[idx]) and end < raw_len and _is_hangul_t(raw[end]):
+            end += 1
         while end < raw_len and unicodedata.combining(raw[end]):
             end += 1
         cluster = unicodedata.normalize("NFC", raw[idx:end])
@@ -79,6 +105,16 @@ def _build_raw_to_canonical_offsets(raw: str) -> list[int]:
     return offsets
 
 
+def _declared_matches_slice(declared_text: str | None, doc_slice: str) -> bool:
+    if declared_text is None:
+        return True
+    if declared_text == doc_slice or canonicalize_text(declared_text) == doc_slice:
+        return True
+    norm_declared, _, _ = _normalize_for_match(declared_text)
+    norm_slice, _, _ = _normalize_for_match(doc_slice)
+    return bool(norm_declared) and norm_declared == norm_slice
+
+
 def _resolve_span_in_canonical(
     start: int,
     end: int,
@@ -86,28 +122,30 @@ def _resolve_span_in_canonical(
     canonical_doc: str,
     raw_to_canonical: list[int] | None,
 ) -> tuple[int, int, str] | None:
-    """Resolve ``(start, end)`` against ``canonical_doc``, remapping raw offsets if needed."""
+    """Resolve ``(start, end)`` against ``canonical_doc``, remapping raw offsets first."""
     doc_len = len(canonical_doc)
+    if raw_to_canonical is not None:
+        if 0 <= start < end < len(raw_to_canonical):
+            c_start = raw_to_canonical[start]
+            c_end = raw_to_canonical[end]
+            if 0 <= c_start < c_end <= doc_len:
+                mapped_slice = canonical_doc[c_start:c_end]
+                if mapped_slice and _declared_matches_slice(
+                    declared_text, mapped_slice
+                ):
+                    return c_start, c_end, mapped_slice
+        # Fallback for callers passing pre-canonicalized offsets alongside
+        # a non-canonical raw document (only when declared_text verifies it).
+        if declared_text is not None and 0 <= start < end <= doc_len:
+            direct_slice = canonical_doc[start:end]
+            if direct_slice and _declared_matches_slice(declared_text, direct_slice):
+                return start, end, direct_slice
+        return None
+
     if 0 <= start < end <= doc_len:
         direct_slice = canonical_doc[start:end]
-        if direct_slice and (
-            declared_text is None
-            or declared_text == direct_slice
-            or canonicalize_text(declared_text) == direct_slice
-        ):
+        if direct_slice and _declared_matches_slice(declared_text, direct_slice):
             return start, end, direct_slice
-
-    if raw_to_canonical is not None and 0 <= start < end < len(raw_to_canonical):
-        c_start = raw_to_canonical[start]
-        c_end = raw_to_canonical[end]
-        if 0 <= c_start < c_end <= doc_len:
-            mapped_slice = canonical_doc[c_start:c_end]
-            if mapped_slice and (
-                declared_text is None
-                or declared_text == mapped_slice
-                or canonicalize_text(declared_text) == mapped_slice
-            ):
-                return c_start, c_end, mapped_slice
 
     return None
 
@@ -121,11 +159,16 @@ def _get_field(item: Any, *names: str, default: Any = None) -> Any:
     if isinstance(item, Mapping):
         for name in names:
             if name in item and item[name] is not None:
-                return item[name]
+                value = item[name]
+                if isinstance(value, str) and not value.strip():
+                    continue
+                return value
         return default
     for name in names:
         value = getattr(item, name, None)
         if value is not None:
+            if isinstance(value, str) and not value.strip():
+                continue
             return value
     return default
 
@@ -146,9 +189,22 @@ def _map_assertion(finding: Any) -> str:
 
 def _map_experiencer(finding: Any, default_experiencer: str = "proband") -> str:
     raw = _get_field(finding, "experiencer")
-    normalized = (
-        str(raw).strip().lower() if raw is not None else default_experiencer.lower()
-    )
+    raw_norm = str(raw).strip().lower() if raw is not None else None
+    default_norm = default_experiencer.strip().lower()
+    if default_norm != "proband" and (raw_norm is None or raw_norm == "proband"):
+        normalized = default_norm
+    elif raw_norm is not None:
+        normalized = raw_norm
+    else:
+        legacy_assertion = _get_field(
+            finding, "assertion", "assertion_status", "status"
+        )
+        if (
+            legacy_assertion is not None
+            and str(legacy_assertion).strip().lower() == "family_history"
+        ):
+            return "family_member"
+        normalized = default_norm
     return _EXPERIENCER_MAP.get(normalized, "unknown")
 
 
@@ -178,8 +234,8 @@ def _extract_mentions(
 
     for record in raw_records:
         # A ``chunk_span`` fallback covers the whole cited chunk rather than a
-        # located mention (#397); do not export it as an exact text mention.
-        if _get_field(record, "offset_basis") == "chunk_span":
+        # located mention (#397); ``unresolved`` spans are ungrounded.
+        if _get_field(record, "offset_basis") in {"chunk_span", "unresolved"}:
             continue
         start = _get_field(record, "start_char", "start")
         end = _get_field(record, "end_char", "end")
@@ -385,9 +441,10 @@ def export_to_ontospan_document(
         actor["run_id"] = run_id
 
     annotations: list[dict[str, Any]] = []
-    for index, (finding, default_experiencer) in enumerate(collected_findings, start=1):
+    for finding, default_experiencer in collected_findings:
         term_id = _get_field(finding, "term_id", "hpo_id", "id")
-        if not term_id:
+        term_id_str = str(term_id).strip() if term_id is not None else ""
+        if not term_id_str:
             continue
         mentions = _extract_mentions(finding, canonical_doc, raw_to_canonical)
         document_level = len(mentions) == 0
@@ -399,9 +456,9 @@ def export_to_ontospan_document(
         )
         annotations.append(
             {
-                "annotation_id": f"ann-{index:04d}",
+                "annotation_id": f"ann-{len(annotations) + 1:04d}",
                 "layer_id": layer_id,
-                "term_id": str(term_id).strip(),
+                "term_id": term_id_str,
                 "axes": {
                     "assertion": {
                         "value": _map_assertion(finding),
@@ -420,7 +477,7 @@ def export_to_ontospan_document(
                 "document_level": document_level,
                 "modifiers": modifiers,
                 "provenance": {
-                    "actor": actor,
+                    "actor": dict(actor),
                     "method": "tool",
                     "source_refs": [],
                     "notes": [],
@@ -464,7 +521,10 @@ def export_to_ontospan_document(
 
 def serialize_ontospan_document(doc: dict[str, Any]) -> str:
     """Serialize an ontospan AnnotatedDocument dict to stable UTF-8 JSON."""
-    return json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    return (
+        json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
+        + "\n"
+    )
 
 
 __all__ = [

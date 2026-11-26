@@ -770,6 +770,14 @@ def process_text_for_hpo_command(
         cli_overrides=cli_overrides,
     )
 
+    if extract_modifiers and extraction_backend != "llm":
+        typer.secho(
+            "Warning: --extract-modifiers is only supported with "
+            "--extraction-backend llm and will be ignored.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+
     try:
         service_result = run_full_text_service(
             text=raw_text,

@@ -187,7 +187,7 @@ class NormalizedModifier:
     source: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.term_id or not self.label:
+        if not self.term_id.strip() or not self.label.strip():
             raise ValueError("NormalizedModifier requires term_id and label")
 
     @classmethod
@@ -199,16 +199,18 @@ class NormalizedModifier:
             return legacy
         if isinstance(legacy, Modifier):
             return cls(
-                term_id=legacy.term_id,
-                label=legacy.label,
+                term_id=legacy.term_id.strip(),
+                label=legacy.label.strip(),
                 segments=[_normalize_modifier_segment(seg) for seg in legacy.segments],
                 source=legacy.source,
             )
         if not isinstance(legacy, Mapping):
             raise TypeError(f"Unsupported modifier input: {type(legacy).__name__}")
 
-        term_id = legacy.get("term_id") or legacy.get("id")
-        label = legacy.get("label") or legacy.get("name") or legacy.get("term_name")
+        raw_term_id = legacy.get("term_id") or legacy.get("id")
+        raw_label = legacy.get("label") or legacy.get("name") or legacy.get("term_name")
+        term_id = str(raw_term_id).strip() if raw_term_id is not None else ""
+        label = str(raw_label).strip() if raw_label is not None else ""
         if not term_id or not label:
             raise ValueError("legacy modifier input must include term_id and label")
 
@@ -216,8 +218,8 @@ class NormalizedModifier:
         segments = [_normalize_modifier_segment(seg) for seg in raw_segments]
         source = legacy.get("source")
         return cls(
-            term_id=str(term_id),
-            label=str(label),
+            term_id=term_id,
+            label=label,
             segments=segments,
             source=str(source) if source is not None else None,
         )

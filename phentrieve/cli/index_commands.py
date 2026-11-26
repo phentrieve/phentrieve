@@ -12,18 +12,20 @@ app = typer.Typer()
 
 
 def _normalize_index_roots(raw_roots: list[str] | None) -> list[str] | None:
-    """Normalize repeatable or comma-separated --index-roots CLI values."""
+    """Normalize and validate repeatable or comma-separated --index-roots CLI values."""
     if not raw_roots:
         return None
-    normalized = sorted(
-        {
-            part.strip()
-            for entry in raw_roots
-            for part in entry.split(",")
-            if part.strip()
-        }
-    )
-    return normalized or None
+    from phentrieve.ontology_profiles import _normalize_roots
+
+    parts = [
+        part.strip() for entry in raw_roots for part in entry.split(",") if part.strip()
+    ]
+    if not parts:
+        return None
+    try:
+        return sorted(_normalize_roots(parts))
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="'--index-roots'") from exc
 
 
 @app.command("build")

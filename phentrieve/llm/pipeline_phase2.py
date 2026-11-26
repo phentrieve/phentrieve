@@ -343,7 +343,7 @@ def build_grounded_context(
         "primary_chunk_text": (
             primary.get("text", "")
             if primary
-            else item.get("evidence_text", item.get("phrase", ""))
+            else item.get("evidence_text") or item.get("phrase", "")
         ),
         "neighbor_chunk_texts": [chunk.get("text", "") for chunk in neighbors],
     }

@@ -701,3 +701,135 @@ class TestOntospanExport:
 
         assert ann_ataxia["axes"]["assertion"]["value"] == "uncertain"
         assert ann_fever["axes"]["assertion"]["value"] == "absent"
+
+    def test_ontospan_preserves_evidence_locator_mentions_with_typography_and_case_diffs(
+        self,
+    ) -> None:
+        """Mentions located case/whitespace/quote-insensitively must still export."""
+        from phentrieve.llm.evidence_offsets import EvidenceLocator
+
+        document = "Patient has Severe  Tremor and patient\u2019s ataxia."
+        locator = EvidenceLocator(document, {1: (0, len(document))})
+        span_tremor = locator.locate("severe tremor", [1])
+        span_ataxia = locator.locate("patient's ataxia", [1])
+
+        extraction = LLMExtractionResult(
+            terms=[
+                LLMPhenotype(
+                    term_id="HP:0001337",
+                    label="Tremor",
+                    evidence="severe tremor",
+                    evidence_records=[
+                        LLMPhenotypeEvidence(
+                            phrase="tremor",
+                            evidence_text="severe tremor",
+                            chunk_ids=[1],
+                            start_char=span_tremor.start,
+                            end_char=span_tremor.end,
+                            offset_basis=span_tremor.basis,
+                        )
+                    ],
+                ),
+                LLMPhenotype(
+                    term_id="HP:0001251",
+                    label="Ataxia",
+                    evidence="patient's ataxia",
+                    evidence_records=[
+                        LLMPhenotypeEvidence(
+                            phrase="ataxia",
+                            evidence_text="patient's ataxia",
+                            chunk_ids=[1],
+                            start_char=span_ataxia.start,
+                            end_char=span_ataxia.end,
+                            offset_basis=span_ataxia.basis,
+                        )
+                    ],
+                ),
+            ],
+            meta=LLMMeta(llm_model="test-model", llm_mode="two_phase"),
+        )
+
+        doc = export_to_ontospan_document(
+            extraction,
+            document,
+            document_id="case-norm-1",
+            hpo_version="2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        anns = doc["annotation_set"]["annotations"]
+        assert [a["document_level"] for a in anns] == [False, False]
+        assert anns[0]["mentions"][0]["segments"][0]["text"] == "Severe  Tremor"
+        assert anns[1]["mentions"][0]["segments"][0]["text"] == "patient\u2019s ataxia"
+
+    def test_ontospan_remaps_bom_crlf_and_hangul_jamo_raw_offsets_first(self) -> None:
+        """Raw offsets on BOM/CRLF/Hangul-Jamo text must remap before direct slicing."""
+        raw_bom = "\ufeffLine 1.\r\nSevere tremor. More text here."
+        t_start = raw_bom.index("tremor")
+        t_end = t_start + len("tremor")
+        doc_bom = export_to_ontospan_document(
+            [
+                {
+                    "term_id": "HP:0001337",
+                    "evidence_records": [{"start_char": t_start, "end_char": t_end}],
+                }
+            ],
+            raw_bom,
+            document_id="case-bom-none",
+            hpo_version="2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        seg = doc_bom["annotation_set"]["annotations"][0]["mentions"][0]["segments"][0]
+        assert seg["text"] == "tremor"
+        assert doc_bom["document"]["text"][seg["start"] : seg["end"]] == "tremor"
+
+        raw_hangul = "\u1100\u1161\u11a8 tremor"
+        h_start = raw_hangul.index("tremor")
+        h_end = h_start + len("tremor")
+        doc_hangul = export_to_ontospan_document(
+            [
+                {
+                    "term_id": "HP:0001337",
+                    "evidence_records": [
+                        {
+                            "start_char": h_start,
+                            "end_char": h_end,
+                            "evidence_text": "tremor",
+                        }
+                    ],
+                }
+            ],
+            raw_hangul,
+            document_id="case-hangul",
+            hpo_version="2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        seg_h = doc_hangul["annotation_set"]["annotations"][0]["mentions"][0][
+            "segments"
+        ][0]
+        assert seg_h["text"] == "tremor"
+        assert doc_hangul["document"]["text"][seg_h["start"] : seg_h["end"]] == "tremor"
+
+    def test_ontospan_maps_family_and_other_buckets_from_llm_extraction_result(
+        self,
+    ) -> None:
+        """Findings in family_history_findings / other_person_findings keep bucket experiencer."""
+        extraction = LLMExtractionResult(
+            terms=[],
+            family_history_findings=[
+                LLMPhenotype(term_id="HP:0001250", label="Seizure"),
+            ],
+            other_person_findings=[
+                LLMPhenotype(term_id="HP:0001251", label="Ataxia"),
+            ],
+            meta=LLMMeta(llm_model="test-model", llm_mode="two_phase"),
+        )
+        doc = export_to_ontospan_document(
+            extraction,
+            "Mother had seizures; partner has ataxia.",
+            document_id="case-exp",
+            hpo_version="2026-09-01",
+            phentrieve_version="0.33.0",
+        )
+        anns = doc["annotation_set"]["annotations"]
+        assert anns[0]["axes"]["experiencer"]["value"] == "family_member"
+        assert anns[1]["axes"]["experiencer"]["value"] == "other"

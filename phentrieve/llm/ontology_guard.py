@@ -154,6 +154,8 @@ def is_under_any_root(
     cleaned_id = (term_id or "").strip()
     if not cleaned_id:
         return None
+    if isinstance(roots, (str, bytes)):
+        raise TypeError("roots must be a sequence of CURIE strings, not a bare string.")
     root_set = {root.strip() for root in roots if root and root.strip()}
     if cleaned_id in root_set:
         return True
@@ -177,6 +179,8 @@ def term_ids_under_roots(
     """
     if ancestors_map is None:
         ancestors_map = _ancestors_map()
+    if isinstance(roots, (str, bytes)):
+        raise TypeError("roots must be a sequence of CURIE strings, not a bare string.")
     root_set = {root.strip() for root in roots if root and root.strip()}
     if not root_set:
         return set(ancestors_map.keys())
@@ -222,16 +226,15 @@ def check_finding_term(
     in_modifier = bool(modifier_roots) and (
         is_under_any_root(cleaned_id, modifier_roots, amap) is True
     )
-    in_disallowed = any(
-        is_under_any_root(cleaned_id, (root_id,), amap) is True
-        for root_id in active_profile.disallowed_modifier_roots.values()
-    )
-
     if finding_roots:
         if in_finding:
             return FindingGuardDecision(accepted=True, is_modifier_term=False)
         return FindingGuardDecision(accepted=False, is_modifier_term=in_modifier)
 
+    in_disallowed = any(
+        is_under_any_root(cleaned_id, (root_id,), amap) is True
+        for root_id in active_profile.disallowed_modifier_roots.values()
+    )
     if in_modifier or in_disallowed:
         warning = OntologyWarning(
             code="modifier_as_annotation",
@@ -266,7 +269,7 @@ def check_modifier_term(
     """Validate whether ``term_id`` is an allowed clinical modifier term."""
     cleaned_id = (term_id or "").strip()
     if not cleaned_id:
-        return ModifierGuardDecision(accepted=True)
+        return ModifierGuardDecision(accepted=False)
 
     active_profile = profile if profile is not None else get_default_ontology_profile()
     amap = _ancestors_map() if ancestors_map is None else ancestors_map

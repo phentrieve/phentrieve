@@ -383,7 +383,7 @@ def _coerce_export_phenotype(request_cls: Any, p: dict[str, Any], idx: int) -> A
     match_method = p.get("match_method") or "client_supplied"
     source_mode = p.get("source_mode") or "unknown"
     extra_kwargs: dict[str, Any] = {}
-    if p.get("modifiers"):
+    if "modifiers" in p and p["modifiers"] is not None:
         extra_kwargs["modifiers"] = p["modifiers"]
     return request_cls(
         hpo_id=hpo_id,

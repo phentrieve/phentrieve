@@ -76,10 +76,18 @@ def orchestrate_index_building(
             get_default_ontology_profile().roots.index_roots
         )
     else:
+        if isinstance(index_roots, (str, bytes)):
+            raise TypeError(
+                "index_roots must be a sequence of CURIE strings, not a bare string."
+            )
         effective_roots = index_roots
-    normalized_index_roots = tuple(
-        sorted({root.strip() for root in effective_roots if root and root.strip()})
-    )
+    from phentrieve.ontology_profiles import _normalize_roots
+
+    try:
+        normalized_index_roots = tuple(sorted(_normalize_roots(list(effective_roots))))
+    except ValueError as exc:
+        logging.error("Invalid index_roots configuration: %s", exc)
+        return False
 
     data_dir = resolve_data_path(data_dir_override, "data_dir", get_default_data_dir)
     db_path = data_dir / DEFAULT_HPO_DB_FILENAME
@@ -109,6 +117,14 @@ def orchestrate_index_building(
 
     if normalized_index_roots:
         root_set = set(normalized_index_roots)
+        known_term_ids = {term["id"] for term in hpo_terms}
+        missing_roots = sorted(root_set - known_term_ids)
+        if missing_roots:
+            logging.error(
+                "Unknown index_roots not found in active HPO terms: %s",
+                ",".join(missing_roots),
+            )
+            return False
         ancestors_map = ancestors or {}
         total_before = len(hpo_terms)
         hpo_terms = [

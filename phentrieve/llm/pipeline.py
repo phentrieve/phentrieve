@@ -8,7 +8,7 @@ import time
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, TypeAlias
 
 from phentrieve.llm.config import (
     DEFAULT_GROUNDED_PHASE1_BASE_OUTPUT_TOKENS,
@@ -171,12 +171,18 @@ from phentrieve.llm.types import (
     LLMMappingSelection,
     LLMMeta,
     LLMPhenotype,
+    LLMPhenotypeEvidence,
     LLMPipelineConfig,
     Phase1FailureClass,
     Phase1Mode,
 )
 from phentrieve.llm.utils import token_sort_similarity
-from phentrieve.modifier_models import Modifier, ModifierSegment, OntologyWarning
+from phentrieve.modifier_models import (
+    CURIE_PATTERN,
+    Modifier,
+    ModifierSegment,
+    OntologyWarning,
+)
 from phentrieve.ontology_profiles import (
     HPO_PHENOTYPIC_ABNORMALITY_ROOT,
     OntologyProfile,
@@ -184,6 +190,22 @@ from phentrieve.ontology_profiles import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ModifierTaskKey: TypeAlias = tuple[str, str, str, tuple[int, ...]]
+_CURIE_RE = re.compile(CURIE_PATTERN)
+
+
+def _extract_candidate_label(candidate: Mapping[str, Any]) -> str:
+    return str(candidate.get("term_name") or candidate.get("label") or "").strip()
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _grounded_phase1_output_token_budget(chunk_count: int) -> int:
@@ -2789,13 +2811,27 @@ class TwoPhaseLLMPipeline:
 
         Returns ``(accepted_candidates, warnings, matched_disallowed)``.
         """
+        if not isinstance(batch_result, Mapping):
+            return [], [], False
+
         raw_candidates: list[dict[str, Any]] = []
         if "candidates" in batch_result:
-            raw_candidates = [
-                {**dict(candidate), "retrieval_query": phrase}
-                for candidate in batch_result.get("candidates", [])
-                if isinstance(candidate, dict)
-            ]
+            for candidate in batch_result.get("candidates") or []:
+                if not isinstance(candidate, dict):
+                    continue
+                hpo_id = str(candidate.get("hpo_id", "")).strip()
+                label = _extract_candidate_label(candidate)
+                if not hpo_id or not label or not _CURIE_RE.match(hpo_id):
+                    continue
+                raw_candidates.append(
+                    {
+                        **dict(candidate),
+                        "hpo_id": hpo_id,
+                        "term_name": label,
+                        "score": _safe_float(candidate.get("score"), 0.0),
+                        "retrieval_query": phrase,
+                    }
+                )
         else:
             metadatas = self._extract_first_result_list(batch_result, "metadatas")
             similarities = self._extract_first_result_list(batch_result, "similarities")
@@ -2803,9 +2839,13 @@ class TwoPhaseLLMPipeline:
                 if not isinstance(metadata, dict):
                     continue
                 hpo_id = str(metadata.get("hpo_id", "")).strip()
-                label = str(metadata.get("label", "")).strip()
-                score = float(similarities[idx]) if idx < len(similarities) else 0.0
-                if hpo_id:
+                label = _extract_candidate_label(metadata)
+                score = (
+                    _safe_float(similarities[idx], 0.0)
+                    if idx < len(similarities)
+                    else 0.0
+                )
+                if hpo_id and label and _CURIE_RE.match(hpo_id):
                     raw_candidates.append(
                         {
                             "hpo_id": hpo_id,
@@ -2821,14 +2861,14 @@ class TwoPhaseLLMPipeline:
             if not hpo_id:
                 continue
             existing = deduped.get(hpo_id)
-            if existing is None or float(candidate.get("score", 0.0) or 0.0) > float(
-                existing.get("score", 0.0) or 0.0
-            ):
+            if existing is None or _safe_float(
+                candidate.get("score"), 0.0
+            ) > _safe_float(existing.get("score"), 0.0):
                 deduped[hpo_id] = candidate
 
         ranked = sorted(
             deduped.values(),
-            key=lambda candidate: float(candidate.get("score", 0.0) or 0.0),
+            key=lambda candidate: _safe_float(candidate.get("score"), 0.0),
             reverse=True,
         )
 
@@ -2849,8 +2889,20 @@ class TwoPhaseLLMPipeline:
         warnings: list[OntologyWarning] = []
         matched_disallowed = False
         if disallowed:
+            best_accepted_score = (
+                _safe_float(accepted[0].get("score"), 0.0) if accepted else -1.0
+            )
             local_disallowed = self._try_local_match(phrase, disallowed)
-            if local_disallowed is not None:
+            local_disallowed_score = (
+                _safe_float(local_disallowed.get("score"), 0.0)
+                if local_disallowed is not None
+                else -1.0
+            )
+            if (
+                local_disallowed is not None
+                and local_disallowed_score >= self.similarity_threshold
+                and local_disallowed_score >= best_accepted_score
+            ):
                 warnings.extend(
                     disallowed_warnings.get(str(local_disallowed["hpo_id"]), ())
                 )
@@ -2860,7 +2912,7 @@ class TwoPhaseLLMPipeline:
                 if (
                     top_raw is not None
                     and str(top_raw.get("hpo_id", "")) in disallowed_warnings
-                    and float(top_raw.get("score", 0.0) or 0.0)
+                    and _safe_float(top_raw.get("score"), 0.0)
                     >= self.similarity_threshold
                 ):
                     warnings.extend(disallowed_warnings[str(top_raw["hpo_id"])])
@@ -2906,7 +2958,10 @@ class TwoPhaseLLMPipeline:
                 *profile.roots.modifier_roots,
                 *profile.disallowed_modifier_roots.values(),
             )
-            modifier_term_ids = term_ids_under_roots(retrieval_roots, guard_map)
+            term_ids = term_ids_under_roots(retrieval_roots, guard_map) - set(
+                profile.abstract_modifier_terms
+            )
+            modifier_term_ids = term_ids or None
 
         phase2a_start = time.perf_counter()
         try:
@@ -2946,9 +3001,8 @@ class TwoPhaseLLMPipeline:
 
         # Deduplicate tasks by (phrase_key, finding.term_id, finding.label, chunk_ids)
         # so occurrences in distinct chunks retain their own grounded context.
-        TaskKey = tuple[str, str, str, tuple[int, ...]]
-        tasks: dict[TaskKey, dict[str, Any]] = {}
-        finding_tasks: list[tuple[LLMPhenotype, str, TaskKey]] = []
+        tasks: dict[_ModifierTaskKey, dict[str, Any]] = {}
+        finding_tasks: list[tuple[LLMPhenotype, str, _ModifierTaskKey]] = []
         for finding in findings:
             chunk_ids = [
                 cid for record in finding.evidence_records for cid in record.chunk_ids
@@ -2958,7 +3012,7 @@ class TwoPhaseLLMPipeline:
                 phrase_key = normalize_mapping_phrase_key(raw_phrase)
                 if not phrase_key:
                     continue
-                task_key: TaskKey = (
+                task_key: _ModifierTaskKey = (
                     phrase_key,
                     finding.term_id,
                     finding.label,
@@ -2998,7 +3052,7 @@ class TwoPhaseLLMPipeline:
 
         # Phase 2B-local for modifiers.
         phase2b_local_start = time.perf_counter()
-        resolved_by_task: dict[TaskKey, tuple[str, str]] = {}
+        resolved_by_task: dict[_ModifierTaskKey, tuple[str, str]] = {}
         deferred_tasks: list[dict[str, Any]] = []
         local_trace: list[dict[str, Any]] = []
         suppressed_trace: list[dict[str, Any]] = []
@@ -3148,6 +3202,7 @@ class TwoPhaseLLMPipeline:
                     phrase = mod_item["phrase"]
 
                     chosen: dict[str, Any] | None = None
+                    used_local_fallback = False
                     if selected_id is not None:
                         chosen = next(
                             (
@@ -3158,10 +3213,17 @@ class TwoPhaseLLMPipeline:
                             None,
                         )
                     elif not explicit_null:
-                        chosen = self._try_local_match(
+                        fallback_match = self._try_local_match(
                             phrase,
                             candidates_by_phrase_key.get(mod_item["phrase_key"], []),
                         )
+                        if (
+                            fallback_match is not None
+                            and _safe_float(fallback_match.get("score"), 0.0)
+                            >= self.similarity_threshold
+                        ):
+                            chosen = fallback_match
+                            used_local_fallback = True
 
                     if chosen is None:
                         llm_trace.append(
@@ -3194,14 +3256,18 @@ class TwoPhaseLLMPipeline:
                         str(chosen["hpo_id"]),
                         str(chosen["term_name"]),
                     )
-                    outcome.llm_mapped += 1
+                    if used_local_fallback:
+                        outcome.local_matches += 1
+                    else:
+                        outcome.llm_mapped += 1
                     llm_trace.append(
                         {
                             "phrase": phrase,
                             "finding_term_id": mod_item["finding_term"]["id"],
                             "term_id": chosen["hpo_id"],
                             "label": chosen["term_name"],
-                            "match_method": "llm",
+                            "match_method": "local" if used_local_fallback else "llm",
+                            **({"local_fallback": True} if used_local_fallback else {}),
                         }
                     )
             outcome.phase2b_llm_seconds = round(
@@ -3292,6 +3358,23 @@ class TwoPhaseLLMPipeline:
         segments_by_idx: dict[int, list[ModifierSegment]] = {
             idx: [] for idx in range(len(resolved_mods))
         }
+        accepted_mod_spans: list[tuple[int, int]] = []
+
+        def _try_record_modifier_segment(idx: int, m_start: int, m_end: int) -> bool:
+            if any(
+                m_start < a_end and a_start < m_end
+                for a_start, a_end in accepted_mod_spans
+            ):
+                return False
+            accepted_mod_spans.append((m_start, m_end))
+            segments_by_idx[idx].append(
+                ModifierSegment(
+                    start=m_start,
+                    end=m_end,
+                    text=text[m_start:m_end],
+                )
+            )
+            return True
 
         if primary_ev is not None and anchor_span is not None:
             current_span = anchor_span
@@ -3301,13 +3384,7 @@ class TwoPhaseLLMPipeline:
                     continue
                 m_start, m_end = m_span
                 if m_end <= current_span[0] or m_start >= current_span[1]:
-                    segments_by_idx[idx].append(
-                        ModifierSegment(
-                            start=m_start,
-                            end=m_end,
-                            text=text[m_start:m_end],
-                        )
-                    )
+                    _try_record_modifier_segment(idx, m_start, m_end)
                 else:
                     pending.append((idx, m_start, m_end))
 
@@ -3315,20 +3392,19 @@ class TwoPhaseLLMPipeline:
                 progressed = False
                 next_pending: list[tuple[int, int, int]] = []
                 for idx, m_start, m_end in sorted(
-                    pending, key=lambda entry: (entry[1], entry[2])
+                    pending, key=lambda entry: (entry[1], -(entry[2] - entry[1]))
                 ):
+                    if any(
+                        m_start < a_end and a_start < m_end
+                        for a_start, a_end in accepted_mod_spans
+                    ):
+                        continue
                     new_span, keep = carve_modifier_span(
                         text, current_span, (m_start, m_end)
                     )
                     if keep:
                         current_span = new_span
-                        segments_by_idx[idx].append(
-                            ModifierSegment(
-                                start=m_start,
-                                end=m_end,
-                                text=text[m_start:m_end],
-                            )
-                        )
+                        _try_record_modifier_segment(idx, m_start, m_end)
                         progressed = True
                     else:
                         next_pending.append((idx, m_start, m_end))
@@ -3338,20 +3414,19 @@ class TwoPhaseLLMPipeline:
 
                 next_pending = []
                 for idx, m_start, m_end in sorted(
-                    pending, key=lambda entry: (-entry[2], -entry[1])
+                    pending, key=lambda entry: (-entry[2], -(entry[2] - entry[1]))
                 ):
+                    if any(
+                        m_start < a_end and a_start < m_end
+                        for a_start, a_end in accepted_mod_spans
+                    ):
+                        continue
                     new_span, keep = carve_modifier_span(
                         text, current_span, (m_start, m_end)
                     )
                     if keep:
                         current_span = new_span
-                        segments_by_idx[idx].append(
-                            ModifierSegment(
-                                start=m_start,
-                                end=m_end,
-                                text=text[m_start:m_end],
-                            )
-                        )
+                        _try_record_modifier_segment(idx, m_start, m_end)
                         progressed = True
                     else:
                         next_pending.append((idx, m_start, m_end))
@@ -3363,29 +3438,28 @@ class TwoPhaseLLMPipeline:
                 primary_ev.start_char, primary_ev.end_char = current_span
                 primary_ev.evidence_text = text[current_span[0] : current_span[1]]
         else:
-            for idx, m_span in located_spans.items():
-                if m_span is not None:
-                    m_start, m_end = m_span
-                    segments_by_idx[idx].append(
-                        ModifierSegment(
-                            start=m_start,
-                            end=m_end,
-                            text=text[m_start:m_end],
-                        )
-                    )
+            for idx, m_span in sorted(
+                ((i, s) for i, s in located_spans.items() if s is not None),
+                key=lambda item: (item[1][0], -(item[1][1] - item[1][0])),
+            ):
+                _try_record_modifier_segment(idx, m_span[0], m_span[1])
 
         existing_by_id = {
             modifier.term_id: idx for idx, modifier in enumerate(finding.modifiers)
         }
         for idx, (term_id, label, _raw_phrase) in enumerate(resolved_mods):
+            cleaned_id = (term_id or "").strip()
+            cleaned_label = (label or "").strip()
+            if not cleaned_id or not cleaned_label or not _CURIE_RE.match(cleaned_id):
+                continue
             new_segments = segments_by_idx[idx]
-            existing_idx = existing_by_id.get(term_id)
+            existing_idx = existing_by_id.get(cleaned_id)
             if existing_idx is None:
-                existing_by_id[term_id] = len(finding.modifiers)
+                existing_by_id[cleaned_id] = len(finding.modifiers)
                 finding.modifiers.append(
                     Modifier(
-                        term_id=term_id,
-                        label=label,
+                        term_id=cleaned_id,
+                        label=cleaned_label,
                         segments=new_segments,
                         source="llm",
                     )
@@ -3414,7 +3488,8 @@ class TwoPhaseLLMPipeline:
         When ``_deduplicate_terms`` merges two mentions of the same finding (one
         carved and one uncarved), an inherited evidence record could overlap a
         surviving modifier segment. Re-carve any overlapping located evidence
-        record, or drop modifier segments that still overlap an uncarvable span.
+        record iteratively (peeling edges in span order with rollback on
+        failure), or drop modifier segments that still overlap an uncarvable span.
         """
         located_records = [
             ev
@@ -3426,29 +3501,97 @@ class TwoPhaseLLMPipeline:
         if not located_records or not finding.modifiers:
             return
 
+        # Flatten all modifier segments with their owner index so iterative
+        # edge-peeling works regardless of modifier attachment order.
+        all_segments: list[tuple[int, int, ModifierSegment]] = []
+        for mod_idx, modifier in enumerate(finding.modifiers):
+            for seg_idx, seg in enumerate(modifier.segments):
+                all_segments.append((mod_idx, seg_idx, seg))
+
+        current_spans: list[tuple[int, int]] = [
+            (int(ev.start_char), int(ev.end_char))
+            for ev in located_records
+            if ev.start_char is not None and ev.end_char is not None
+        ]
+        accepted_keys: set[tuple[int, int]] = set()
+        pending = list(all_segments)
+
+        def _try_apply_segment(
+            seg: ModifierSegment, spans: list[tuple[int, int]]
+        ) -> list[tuple[int, int]] | None:
+            tentative = list(spans)
+            for rec_idx, f_span in enumerate(tentative):
+                if seg.end <= f_span[0] or seg.start >= f_span[1]:
+                    continue
+                if text and 0 <= f_span[0] < f_span[1] <= len(text):
+                    new_span, keep = carve_modifier_span(
+                        text, f_span, (seg.start, seg.end)
+                    )
+                    if keep:
+                        tentative[rec_idx] = new_span
+                        continue
+                return None
+            return tentative
+
+        # First accept segments already disjoint from all located records.
+        overlapping: list[tuple[int, int, ModifierSegment]] = []
+        for entry in pending:
+            mod_idx, seg_idx, seg = entry
+            if all(
+                seg.end <= f_start or seg.start >= f_end
+                for f_start, f_end in current_spans
+            ):
+                accepted_keys.add((mod_idx, seg_idx))
+            else:
+                overlapping.append(entry)
+
+        # Iteratively peel leading and trailing edges until fixed point.
+        pending = overlapping
+        while pending:
+            progressed = False
+            next_pending: list[tuple[int, int, ModifierSegment]] = []
+            for entry in sorted(pending, key=lambda item: (item[2].start, item[2].end)):
+                mod_idx, seg_idx, seg = entry
+                tentative = _try_apply_segment(seg, current_spans)
+                if tentative is not None:
+                    current_spans = tentative
+                    accepted_keys.add((mod_idx, seg_idx))
+                    progressed = True
+                else:
+                    next_pending.append(entry)
+            pending = next_pending
+            if not pending:
+                break
+
+            next_pending = []
+            for entry in sorted(
+                pending, key=lambda item: (-item[2].end, -item[2].start)
+            ):
+                mod_idx, seg_idx, seg = entry
+                tentative = _try_apply_segment(seg, current_spans)
+                if tentative is not None:
+                    current_spans = tentative
+                    accepted_keys.add((mod_idx, seg_idx))
+                    progressed = True
+                else:
+                    next_pending.append(entry)
+            pending = next_pending
+            if not progressed:
+                break
+
+        for ev, new_span in zip(located_records, current_spans, strict=True):
+            if (ev.start_char, ev.end_char) != new_span:
+                ev.start_char, ev.end_char = new_span
+                if text and 0 <= new_span[0] < new_span[1] <= len(text):
+                    ev.evidence_text = text[new_span[0] : new_span[1]]
+
         updated_modifiers: list[Modifier] = []
-        for modifier in finding.modifiers:
-            kept_segments: list[ModifierSegment] = []
-            for seg in modifier.segments:
-                seg_valid = True
-                for ev in located_records:
-                    if ev.start_char is None or ev.end_char is None:
-                        continue
-                    if seg.end <= ev.start_char or seg.start >= ev.end_char:
-                        continue
-                    if text and 0 <= ev.start_char < ev.end_char <= len(text):
-                        new_span, keep = carve_modifier_span(
-                            text, (ev.start_char, ev.end_char), (seg.start, seg.end)
-                        )
-                        if keep:
-                            if new_span != (ev.start_char, ev.end_char):
-                                ev.start_char, ev.end_char = new_span
-                                ev.evidence_text = text[new_span[0] : new_span[1]]
-                            continue
-                    seg_valid = False
-                    break
-                if seg_valid:
-                    kept_segments.append(seg)
+        for mod_idx, modifier in enumerate(finding.modifiers):
+            kept_segments = [
+                seg
+                for seg_idx, seg in enumerate(modifier.segments)
+                if (mod_idx, seg_idx) in accepted_keys
+            ]
             if len(kept_segments) != len(modifier.segments):
                 updated_modifiers.append(
                     modifier.model_copy(update={"segments": kept_segments})
@@ -3457,14 +3600,19 @@ class TwoPhaseLLMPipeline:
                 updated_modifiers.append(modifier)
         finding.modifiers = updated_modifiers
 
-        deduped_records = []
-        seen_spans: set[tuple[int | None, int | None, str | None]] = set()
+        deduped_records: list[LLMPhenotypeEvidence] = []
+        seen_spans: dict[tuple[int | None, int | None, str | None], int] = {}
         for ev in finding.evidence_records:
             key = (ev.start_char, ev.end_char, ev.offset_basis)
             if ev.start_char is not None and ev.end_char is not None:
-                if key in seen_spans:
+                existing_pos = seen_spans.get(key)
+                if existing_pos is not None:
+                    merged_cids = sorted(
+                        set(deduped_records[existing_pos].chunk_ids) | set(ev.chunk_ids)
+                    )
+                    deduped_records[existing_pos].chunk_ids = merged_cids
                     continue
-                seen_spans.add(key)
+                seen_spans[key] = len(deduped_records)
             deduped_records.append(ev)
         finding.evidence_records = deduped_records
 
@@ -3562,8 +3710,8 @@ class TwoPhaseLLMPipeline:
                     )
             elif (
                 mod_ev.evidence_text
+                and 0 <= m_start < m_end
                 and len(mod_ev.evidence_text) == m_end - m_start
-                and m_end > m_start
                 and (
                     target_ev is None
                     or target_ev.start_char is None
@@ -3580,10 +3728,14 @@ class TwoPhaseLLMPipeline:
                     )
                 )
 
+        cleaned_id = (mod_term.term_id or "").strip()
+        cleaned_label = (mod_term.label or "").strip()
+        if not cleaned_id or not cleaned_label or not _CURIE_RE.match(cleaned_id):
+            return
         target.modifiers.append(
             Modifier(
-                term_id=mod_term.term_id,
-                label=mod_term.label,
+                term_id=cleaned_id,
+                label=cleaned_label,
                 segments=segments,
                 source="llm",
             )
@@ -3699,7 +3851,7 @@ class TwoPhaseLLMPipeline:
 
         if stats is not None:
             stats["converted_modifier_findings"] = converted
-        return (*guarded_lists, dropped)
+        return tuple(guarded_lists) + (dropped,)
 
     @staticmethod
     def _drop_non_phenotypic(terms: list[LLMPhenotype]) -> list[LLMPhenotype]:

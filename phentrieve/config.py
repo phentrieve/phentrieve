@@ -10,17 +10,19 @@ fall back to the defaults defined in this module.
 
 import copy
 import functools
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from phentrieve.ontology_profiles import (
-    HPO_CLINICAL_MODIFIER_ROOT,
-    HPO_PHENOTYPIC_ABNORMALITY_ROOT,
-)
+from phentrieve.modifier_models import CURIE_PATTERN
 
 if TYPE_CHECKING:
     import chromadb
+
+_CURIE_RE = re.compile(CURIE_PATTERN)
+HPO_PHENOTYPIC_ABNORMALITY_ROOT = "HP:0000118"
+HPO_CLINICAL_MODIFIER_ROOT = "HP:0012823"
 
 # Public API exports - these are imported by other modules
 __all__ = [
@@ -494,7 +496,7 @@ def _load_ontology_roots(key: str, fallback: tuple[str, ...]) -> tuple[str, ...]
         if not isinstance(item, str):
             return fallback
         stripped = item.strip()
-        if not stripped:
+        if not stripped or not _CURIE_RE.match(stripped):
             return fallback
         if stripped not in seen:
             seen.add(stripped)

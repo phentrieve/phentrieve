@@ -837,3 +837,51 @@ class TestToolExecutorAllowedTermIdsAndCompatibility:
         # Retriever without the method returns empty list gracefully
         minimal_executor = ToolExecutor(retriever=SimpleNamespace())
         assert minimal_executor.check_index_roots_compatibility() == []
+
+    def test_multi_vector_subtree_query_does_not_truncate_terms_with_over_20_vectors(
+        self,
+    ):
+        """Terms with >20 component vectors must keep every vector in subset aggregation."""
+        ids = [f"HP:0099101__synonym_{i}" for i in range(25)] + ["HP:0099101__label"]
+        # 25 synonyms with similarity ~1.0 and 1 label with similarity 0.0 ->
+        # under ALL_MIN the minimum must reflect the 26th vector (0.0), not be
+        # truncated at 20 vectors.
+        embeddings = [[1.0, 0.0]] * 25 + [[0.0, 1.0]]
+        metadatas = [
+            {"hpo_id": "HP:0099101", "label": "Many synonyms", "component": "synonym"}
+        ] * 25 + [
+            {"hpo_id": "HP:0099101", "label": "Many synonyms", "component": "label"}
+        ]
+        documents = [f"syn {i}" for i in range(25)] + ["Many synonyms"]
+
+        class _ManyVectorCollection:
+            metadata = {"index_type": "multi_vector"}
+
+            def get(self, where=None, include=None):
+                return {
+                    "ids": ids,
+                    "embeddings": embeddings,
+                    "metadatas": metadatas,
+                    "documents": documents,
+                }
+
+        class _UnitModel:
+            def parameters(self):
+                yield SimpleNamespace(device=SimpleNamespace(type="cpu"))
+
+            def encode(self, texts, device="cpu"):
+                return [[1.0, 0.0] for _ in texts]
+
+        retriever = DenseRetriever(
+            _UnitModel(),  # type: ignore[arg-type]
+            _ManyVectorCollection(),  # type: ignore[arg-type]
+            min_similarity=0.0,
+        )
+        results = retriever.query_multi_vector(
+            "query",
+            n_results=1,
+            aggregation_strategy="all_min",
+            allowed_term_ids={"HP:0099101"},
+        )
+        assert len(results) == 1
+        assert results[0]["similarity"] == pytest.approx(0.0, abs=1e-6)

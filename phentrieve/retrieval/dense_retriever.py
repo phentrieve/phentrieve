@@ -7,6 +7,7 @@ relevant HPO terms based on semantic similarity with input text.
 
 import logging
 import os
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from pathlib import Path
@@ -49,6 +50,9 @@ CHROMA_QUERY_BATCH_SIZE = 64
 # Maximum number of HPO IDs sent to ChromaDB in one collection.get($in) call
 # when fetching subtree vectors into memory.
 CHROMA_SUBTREE_GET_BATCH_SIZE = 200
+
+# Bounded LRU cap for in-memory subtree vector caches on long-lived retrievers.
+MAX_SUBTREE_CACHE_ENTRIES = 16
 
 
 class RetrievalError(RuntimeError):
@@ -194,7 +198,7 @@ class DenseRetriever:
         self.model_name: str | None = None
         self.index_base_path: Path | None = None
         self._index_type: str | None = None  # Cached index type
-        self._subtree_cache: dict[frozenset[str], dict[str, Any]] = {}
+        self._subtree_cache: OrderedDict[frozenset[str], dict[str, Any]] = OrderedDict()
 
     def get_index_roots(self) -> tuple[str, ...]:
         """Return the canonical index_roots stored on the ChromaDB collection.
@@ -236,6 +240,14 @@ class DenseRetriever:
         when ``strict=True``. Returns the list of warning messages (empty when
         compatible).
         """
+        if isinstance(configured_index_roots, (str, bytes)):
+            raise TypeError(
+                "configured_index_roots must be a sequence of CURIE strings, not a bare string."
+            )
+        if isinstance(required_roots, (str, bytes)):
+            raise TypeError(
+                "required_roots must be a sequence of CURIE strings, not a bare string."
+            )
         stored_roots = self.get_index_roots()
         normalized_configured = tuple(
             sorted(
@@ -389,9 +401,19 @@ class DenseRetriever:
             )
             return None
 
+    def _cache_subtree_entry(
+        self, cache_key: frozenset[str], entry: dict[str, Any]
+    ) -> dict[str, Any]:
+        self._subtree_cache[cache_key] = entry
+        self._subtree_cache.move_to_end(cache_key)
+        while len(self._subtree_cache) > MAX_SUBTREE_CACHE_ENTRIES:
+            self._subtree_cache.popitem(last=False)
+        return entry
+
     def _load_allowed_term_cache(self, cache_key: frozenset[str]) -> dict[str, Any]:
         """Fetch and L2-normalize all collection vectors for ``cache_key``."""
         if cache_key in self._subtree_cache:
+            self._subtree_cache.move_to_end(cache_key)
             return self._subtree_cache[cache_key]
 
         import numpy as np
@@ -414,12 +436,14 @@ class DenseRetriever:
             part_embs = part.get("embeddings")
             if part_embs is None or len(part_embs) == 0:
                 continue
-            part_docs = list(part.get("documents") or [""] * len(part_ids))
-            part_metas = list(part.get("metadatas") or [{}] * len(part_ids))
+            raw_docs = list(part.get("documents") or [""] * len(part_ids))
+            raw_metas = list(part.get("metadatas") or [{}] * len(part_ids))
+            part_docs = [doc if isinstance(doc, str) else "" for doc in raw_docs]
+            part_metas = [meta if isinstance(meta, dict) else {} for meta in raw_metas]
 
             ids_acc.extend(part_ids)
             docs_acc.extend(part_docs)
-            metas_acc.extend(cast(list[dict[str, Any]], part_metas))
+            metas_acc.extend(part_metas)
             emb_chunks.append(np.asarray(part_embs, dtype=np.float32))
 
         if not ids_acc:
@@ -429,8 +453,7 @@ class DenseRetriever:
                 "metadatas": [],
                 "unit_embeddings": None,
             }
-            self._subtree_cache[cache_key] = empty_entry
-            return empty_entry
+            return self._cache_subtree_entry(cache_key, empty_entry)
 
         stored_matrix = np.vstack(emb_chunks)
         norms = np.linalg.norm(stored_matrix, axis=1, keepdims=True)
@@ -443,18 +466,21 @@ class DenseRetriever:
             "metadatas": metas_acc,
             "unit_embeddings": unit_embeddings,
         }
-        self._subtree_cache[cache_key] = entry
-        return entry
+        return self._cache_subtree_entry(cache_key, entry)
 
     def _query_allowed_term_ids(
         self,
         texts: list[str],
         *,
         allowed_term_ids: set[str] | frozenset[str],
-        n_results: int,
+        n_results: int | None,
         include_similarities: bool = True,
     ) -> list[dict[str, Any]]:
-        """Run exact in-memory cosine search restricted to ``allowed_term_ids``."""
+        """Run exact in-memory cosine search restricted to ``allowed_term_ids``.
+
+        When ``n_results`` is ``None``, returns every cached vector in the
+        allowed subset without truncation (used by multi-vector aggregation).
+        """
         if not texts:
             return []
 
@@ -490,7 +516,7 @@ class DenseRetriever:
             q_safe_norms = np.where(q_norms > 0.0, q_norms, 1.0)
             query_unit = query_matrix / q_safe_norms
 
-            sim_matrix = query_unit @ stored_unit.T
+            sim_matrix = np.clip(query_unit @ stored_unit.T, -1.0, 1.0)
 
             stored_ids: list[str] = cached["ids"]
             stored_docs: list[str] = cached["documents"]
@@ -499,13 +525,20 @@ class DenseRetriever:
             results_list: list[dict[str, Any]] = []
             for i in range(len(texts)):
                 row_sims = sim_matrix[i]
-                order = np.argsort(-row_sims, kind="stable")
-                top_indices = order[: max(n_results, 0)]
-
-                res_ids = [stored_ids[int(idx)] for idx in top_indices]
-                res_docs = [stored_docs[int(idx)] for idx in top_indices]
-                res_metas = [stored_metas[int(idx)] for idx in top_indices]
-                res_dists = [1.0 - float(row_sims[int(idx)]) for idx in top_indices]
+                if n_results is None:
+                    res_ids = list(stored_ids)
+                    res_docs = list(stored_docs)
+                    res_metas = list(stored_metas)
+                    res_dists = [max(0.0, 1.0 - float(sim)) for sim in row_sims]
+                else:
+                    order = np.argsort(-row_sims, kind="stable")
+                    top_indices = order[: max(n_results, 0)]
+                    res_ids = [stored_ids[int(idx)] for idx in top_indices]
+                    res_docs = [stored_docs[int(idx)] for idx in top_indices]
+                    res_metas = [stored_metas[int(idx)] for idx in top_indices]
+                    res_dists = [
+                        max(0.0, 1.0 - float(row_sims[int(idx)])) for idx in top_indices
+                    ]
 
                 result: dict[str, Any] = {
                     "ids": [res_ids],
@@ -840,15 +873,14 @@ class DenseRetriever:
                 text, n_results=raw_n_results, include_similarities=True
             )
         else:
-            # Score all vectors of the allowed subset so every component vector
-            # participates in multi-vector aggregation (100% recall over subset).
-            subset_n_results = max(raw_n_results, len(allowed_term_ids) * 20)
-            raw_results = self.query(
-                text,
-                n_results=subset_n_results,
-                include_similarities=True,
+            # Score every cached vector of the allowed subset without truncation
+            # so all component vectors participate in multi-vector aggregation.
+            raw_results = self._query_allowed_term_ids(
+                [text],
                 allowed_term_ids=allowed_term_ids,
-            )
+                n_results=None,
+                include_similarities=True,
+            )[0]
 
         # Aggregate results by HPO ID
         aggregated = aggregate_multi_vector_results(
@@ -900,12 +932,11 @@ class DenseRetriever:
                 include_similarities=True,
             )
         else:
-            subset_n_results = max(raw_n_results, len(allowed_term_ids) * 20)
-            raw_batch_results = self.query_batch(
-                texts=texts,
-                n_results=subset_n_results,
-                include_similarities=True,
+            raw_batch_results = self._query_allowed_term_ids(
+                texts,
                 allowed_term_ids=allowed_term_ids,
+                n_results=None,
+                include_similarities=True,
             )
 
         converted_results: list[dict[str, Any]] = []

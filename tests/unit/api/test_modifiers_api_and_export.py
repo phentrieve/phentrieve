@@ -458,3 +458,35 @@ def test_phenopacket_export_router_rejects_invalid_modifiers(
 
     assert response.status_code == 422
     assert expected_fragment in response.text
+
+
+def test_mcp_coerce_export_phenotype_forwards_valid_and_rejects_falsy_modifiers() -> (
+    None
+):
+    from pydantic import ValidationError
+
+    from api.mcp.service_adapters import _coerce_export_phenotype
+    from api.schemas.phenopacket_schemas import ExportPhenotypeRequest
+
+    coerced = _coerce_export_phenotype(
+        ExportPhenotypeRequest,
+        {
+            "hpo_id": "HP:0001252",
+            "label": "Hypotonia",
+            "modifiers": [{"term_id": "HP:0012828", "label": "Severe"}],
+        },
+        0,
+    )
+    assert coerced is not None
+    assert [m.term_id for m in coerced.modifiers] == ["HP:0012828"]
+
+    with pytest.raises(ValidationError):
+        _coerce_export_phenotype(
+            ExportPhenotypeRequest,
+            {
+                "hpo_id": "HP:0001252",
+                "label": "Hypotonia",
+                "modifiers": False,
+            },
+            0,
+        )

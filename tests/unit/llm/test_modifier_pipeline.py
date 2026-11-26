@@ -758,7 +758,7 @@ def test_modifier_mapped_as_finding_converted_when_unambiguous_and_dropped_when_
     )
 
     stats: dict[str, int] = {}
-    guarded, _fam, _other, dropped = TwoPhaseLLMPipeline._apply_ontology_guard(
+    *guarded_lists, dropped = TwoPhaseLLMPipeline._apply_ontology_guard(
         [finding, mod_as_finding],
         [],
         [],
@@ -768,6 +768,7 @@ def test_modifier_mapped_as_finding_converted_when_unambiguous_and_dropped_when_
         text=text,
         stats=stats,
     )
+    guarded = guarded_lists[0]
     assert dropped == 0
     assert stats["converted_modifier_findings"] == 1
     assert len(guarded) == 1
@@ -794,18 +795,17 @@ def test_modifier_mapped_as_finding_converted_when_unambiguous_and_dropped_when_
     finding_plain = finding.model_copy(deep=True)
     finding_plain.modifiers = []
     stats_ambig: dict[str, int] = {}
-    guarded_ambig, _fam2, _other2, dropped_ambig = (
-        TwoPhaseLLMPipeline._apply_ontology_guard(
-            [finding_plain, second_finding, mod_as_finding],
-            [],
-            [],
-            profile=HPO_DEFAULT_PROFILE,
-            guard_map=TEST_GUARD_MAP,
-            extract_modifiers=True,
-            text=text,
-            stats=stats_ambig,
-        )
+    *guarded_ambig_lists, dropped_ambig = TwoPhaseLLMPipeline._apply_ontology_guard(
+        [finding_plain, second_finding, mod_as_finding],
+        [],
+        [],
+        profile=HPO_DEFAULT_PROFILE,
+        guard_map=TEST_GUARD_MAP,
+        extract_modifiers=True,
+        text=text,
+        stats=stats_ambig,
     )
+    guarded_ambig = guarded_ambig_lists[0]
     assert dropped_ambig == 1
     assert stats_ambig["converted_modifier_findings"] == 0
     assert len(guarded_ambig) == 2
@@ -1003,7 +1003,7 @@ def test_batched_modifier_mapping_llm_and_safety_net(
         }
     )
     pipeline = TwoPhaseLLMPipeline(
-        provider=provider, tool_executor=executor, mapping_batch_size=10
+        provider=provider, tool_executor=executor, modifier_mapping_batch_size=10
     )
     result = pipeline.run(
         text=text,
@@ -1241,7 +1241,7 @@ def test_post_dedup_span_reconciliation_prevents_overlap_after_merging(
                             "chunk_ids": [1],
                         },
                         {
-                            "phrase": "seizure",
+                            "phrase": "epileptic seizure",
                             "evidence_text": "Severe seizures",
                             "modifiers": [],
                             "category": "Abnormal",
@@ -1256,6 +1256,9 @@ def test_post_dedup_span_reconciliation_prevents_overlap_after_merging(
         {
             "seizure": [
                 {"hpo_id": "HP:0001250", "term_name": "Seizure", "score": 0.98}
+            ],
+            "epileptic seizure": [
+                {"hpo_id": "HP:0001250", "term_name": "Seizure", "score": 0.97}
             ],
             "severe": [{"hpo_id": "HP:0012828", "term_name": "Severe", "score": 0.99}],
         }
@@ -1330,3 +1333,133 @@ def test_grounded_modifier_schema_describes_evidence_text_without_changing_base(
 
     assert "description" not in base_prop
     assert "verbatim quote" in mod_prop["description"]
+
+
+def test_phase1_modifier_schema_coerces_null_and_string_values() -> None:
+    """Unconstrained LLMs emitting modifiers: null or a bare string must validate."""
+    from phentrieve.llm.types import (
+        LLMExtractedPhenotypeWithModifiers,
+        LLMGroundedExtractedPhenotypeWithModifiers,
+    )
+
+    null_item = LLMGroundedExtractedPhenotypeWithModifiers.model_validate(
+        {
+            "phrase": "seizure",
+            "category": "Abnormal",
+            "chunk_ids": [1],
+            "modifiers": None,
+        }
+    )
+    assert null_item.modifiers == []
+
+    str_item = LLMExtractedPhenotypeWithModifiers.model_validate(
+        {
+            "phrase": "seizure",
+            "category": "Abnormal",
+            "modifiers": "severe",
+        }
+    )
+    assert str_item.modifiers == ["severe"]
+
+    dirty_list = LLMGroundedExtractedPhenotypeWithModifiers.model_validate(
+        {
+            "phrase": "seizure",
+            "category": "Abnormal",
+            "chunk_ids": [1],
+            "modifiers": ["mild", None, 42],
+        }
+    )
+    assert dirty_list.modifiers == ["mild"]
+
+
+def test_locate_nearest_ignores_mid_word_matches_and_preserves_nfd_and_hyphenated_words() -> (
+    None
+):
+    """Mid-word hits must not shadow bounded matches, and NFD/hyphenated words must not split."""
+    from phentrieve.llm.evidence_offsets import EvidenceLocator, carve_modifier_span
+
+    # Mid-word "left" inside "cleft" closer to anchor must not shadow bounded "left".
+    doc_shadow = "left ear; cleft palate."
+    locator_shadow = EvidenceLocator(doc_shadow, {1: (0, len(doc_shadow))})
+    span = locator_shadow.locate_nearest(
+        "left",
+        [1],
+        anchor_span=(16, 22),
+        require_word_boundaries=True,
+    )
+    assert (span.start, span.end) == (0, 4)
+
+    # NFD combining diaeresis must not create a false word boundary mid-word.
+    doc_nfd = "pra\u0308nataler Beginn"
+    locator_nfd = EvidenceLocator(doc_nfd, {1: (0, len(doc_nfd))})
+    span_nfd = locator_nfd.locate_nearest("prä", [1], require_word_boundaries=True)
+    assert span_nfd.basis == "unresolved"
+
+    # Intra-word hyphenated compound ("left" in "left-sided") must not carve into "sided ...".
+    doc_hyphen = "left-sided hearing loss"
+    locator_hyphen = EvidenceLocator(doc_hyphen, {1: (0, len(doc_hyphen))})
+    span_part = locator_hyphen.locate_nearest("left", [1], require_word_boundaries=True)
+    assert span_part.basis == "unresolved"
+    new_span, kept = carve_modifier_span(doc_hyphen, (0, len(doc_hyphen)), (0, 4))
+    assert new_span == (0, len(doc_hyphen))
+    assert kept is False
+
+    # Whole compound "left-sided" IS word-bounded and carves cleanly.
+    span_full = locator_hyphen.locate_nearest(
+        "left-sided", [1], require_word_boundaries=True
+    )
+    assert (span_full.start, span_full.end) == (0, 10)
+    carved_span, kept_full = carve_modifier_span(
+        doc_hyphen, (0, len(doc_hyphen)), (0, 10)
+    )
+    assert kept_full is True
+    assert doc_hyphen[carved_span[0] : carved_span[1]] == "hearing loss"
+
+
+def test_post_dedup_reconciliation_handles_reverse_order_multi_modifiers() -> None:
+    """Iterative peeling in _reconcile_post_dedup_spans must not depend on modifier order."""
+    from phentrieve.modifier_models import Modifier, ModifierSegment
+
+    text = "Mild left-sided hearing loss."
+    finding = LLMPhenotype(
+        term_id="HP:0000365",
+        label="Hearing impairment",
+        evidence="hearing loss",
+        evidence_records=[
+            LLMPhenotypeEvidence(
+                phrase="hearing loss",
+                evidence_text="Mild left-sided hearing loss",
+                chunk_ids=[1],
+                start_char=0,
+                end_char=28,
+                offset_basis="evidence_in_chunk",
+            )
+        ],
+        modifiers=[
+            # Inner modifier appears BEFORE outer leading modifier.
+            Modifier(
+                term_id="HP:0012833",
+                label="Unilateral",
+                segments=[ModifierSegment(start=5, end=15, text="left-sided")],
+                source="llm",
+            ),
+            Modifier(
+                term_id="HP:0012825",
+                label="Mild",
+                segments=[ModifierSegment(start=0, end=4, text="Mild")],
+                source="llm",
+            ),
+        ],
+    )
+
+    TwoPhaseLLMPipeline._reconcile_post_dedup_spans(finding=finding, text=text)
+
+    assert finding.evidence_records[0].evidence_text == "hearing loss"
+    assert (
+        finding.evidence_records[0].start_char,
+        finding.evidence_records[0].end_char,
+    ) == (16, 28)
+    assert [seg.text for mod in finding.modifiers for seg in mod.segments] == [
+        "left-sided",
+        "Mild",
+    ]

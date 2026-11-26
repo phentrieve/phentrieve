@@ -328,10 +328,34 @@ class EvidenceLocator:
         matches: list[tuple[int, int, OffsetBasis]] = []
         seen_spans: set[tuple[int, int]] = set()
 
+        def _is_bounded(entry: tuple[int, int, OffsetBasis]) -> bool:
+            return _is_word_boundary(self._document, entry[0]) and _is_word_boundary(
+                self._document, entry[1]
+            )
+
+        # If the modifier text appears inside the finding's own anchor span only
+        # as a compound/sub-word (e.g. "mild" inside "mildheadache"), do not
+        # jump to an unrelated bounded occurrence elsewhere in the chunk; leave
+        # it unresolved so modifier.segments stays empty.
+        if require_word_boundaries and anchor_span is not None:
+            a_start_check, a_end_check = anchor_span
+            in_anchor_hits = self._find_all(evidence_text, a_start_check, a_end_check)
+            if in_anchor_hits and not any(
+                _is_word_boundary(self._document, s)
+                and _is_word_boundary(self._document, e)
+                for s, e in in_anchor_hits
+            ):
+                return EvidenceSpan(None, None, "unresolved")
+
         def _add_matches(
             found_spans: Sequence[tuple[int, int]], basis: OffsetBasis
         ) -> None:
             for span_start, span_end in found_spans:
+                if require_word_boundaries and not (
+                    _is_word_boundary(self._document, span_start)
+                    and _is_word_boundary(self._document, span_end)
+                ):
+                    continue
                 if (span_start, span_end) not in seen_spans:
                     seen_spans.add((span_start, span_end))
                     matches.append((span_start, span_end, basis))
@@ -374,20 +398,8 @@ class EvidenceLocator:
         if not matches:
             return EvidenceSpan(None, None, "unresolved")
 
-        def _is_bounded(entry: tuple[int, int, OffsetBasis]) -> bool:
-            return _is_word_boundary(self._document, entry[0]) and _is_word_boundary(
-                self._document, entry[1]
-            )
-
         if anchor_span is None:
-            candidates = (
-                [m for m in matches if _is_bounded(m)]
-                if require_word_boundaries
-                else matches
-            )
-            if not candidates:
-                return EvidenceSpan(None, None, "unresolved")
-            best = candidates[0]
+            best = matches[0]
             return EvidenceSpan(best[0], best[1], best[2])
 
         a_start, a_end = anchor_span
@@ -403,18 +415,48 @@ class EvidenceLocator:
             else:
                 gap = 0
             center_distance = abs((m_start + m_end) - (a_start + a_end))
-            return (gap, 0 if _is_bounded(entry) else 1, center_distance, m_start)
+            return (0 if _is_bounded(entry) else 1, gap, center_distance, m_start)
 
         best = min(matches, key=_distance_key)
-        if require_word_boundaries and not _is_bounded(best):
-            return EvidenceSpan(None, None, "unresolved")
         return EvidenceSpan(best[0], best[1], best[2])
+
+
+_INTRA_WORD_HYPHENS = "-\u2010\u2011"
 
 
 def _is_word_boundary(document: str, pos: int) -> bool:
     if pos <= 0 or pos >= len(document):
         return True
-    return not (document[pos - 1].isalnum() and document[pos].isalnum())
+    if unicodedata.combining(document[pos]):
+        return False
+    prev_idx = pos - 1
+    while prev_idx > 0 and unicodedata.combining(document[prev_idx]):
+        prev_idx -= 1
+    prev_ch = document[prev_idx]
+    curr_ch = document[pos]
+    if prev_ch.isalnum() and curr_ch.isalnum():
+        return False
+    # Treat intra-word hyphens (e.g. "left" inside "left-sided") as non-boundary
+    # so modifier carving never splits hyphenated compounds into fragments.
+    if (
+        curr_ch in _INTRA_WORD_HYPHENS
+        and prev_ch.isalnum()
+        and pos + 1 < len(document)
+        and document[pos + 1].isalnum()
+    ):
+        return False
+    if (
+        prev_ch in _INTRA_WORD_HYPHENS
+        and curr_ch.isalnum()
+        and prev_idx > 0
+        and document[prev_idx - 1].isalnum()
+    ):
+        return False
+    return True
+
+
+def _is_carve_separator(ch: str) -> bool:
+    return ch.isspace() or ch in _CARVE_SEPARATORS
 
 
 def carve_modifier_span(
@@ -437,19 +479,22 @@ def carve_modifier_span(
     f_start, f_end = finding_span
     m_start, m_end = modifier_span
 
+    if f_start >= f_end or m_start >= m_end:
+        return finding_span, False
+
     if m_end <= f_start or m_start >= f_end:
         return finding_span, True
 
-    if m_start <= f_start < m_end < f_end and _is_word_boundary(document, m_end):
+    if m_start <= f_start and m_end < f_end and _is_word_boundary(document, m_end):
         new_start = m_end
-        while new_start < f_end and document[new_start] in _CARVE_SEPARATORS:
+        while new_start < f_end and _is_carve_separator(document[new_start]):
             new_start += 1
         if new_start < f_end:
             return (new_start, f_end), True
 
-    if f_start < m_start < f_end <= m_end and _is_word_boundary(document, m_start):
+    if f_start < m_start and f_end <= m_end and _is_word_boundary(document, m_start):
         new_end = m_start
-        while new_end > f_start and document[new_end - 1] in _CARVE_SEPARATORS:
+        while new_end > f_start and _is_carve_separator(document[new_end - 1]):
             new_end -= 1
         if f_start < new_end:
             return (f_start, new_end), True

@@ -208,11 +208,26 @@ _MODIFIERS_DESCRIPTION = (
 )
 
 
+def _coerce_modifiers(value: Any) -> list[str]:
+    """Coerce null, bare string, or dirty modifier lists from unconstrained LLMs."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else []
+    if isinstance(value, (list, tuple)):
+        return [item for item in value if isinstance(item, str)]
+    return []
+
+
 class LLMExtractedPhenotypeWithModifiers(LLMExtractedPhenotype):
     modifiers: list[str] = Field(
         default_factory=list,
         description=_MODIFIERS_DESCRIPTION,
         json_schema_extra={"maxItems": 8},
+    )
+    _normalize_modifiers = field_validator("modifiers", mode="before")(
+        _coerce_modifiers
     )
 
 
@@ -238,6 +253,9 @@ class LLMGroundedExtractedPhenotypeWithModifiers(LLMGroundedExtractedPhenotype):
         default_factory=list,
         description=_MODIFIERS_DESCRIPTION,
         json_schema_extra={"maxItems": 8},
+    )
+    _normalize_modifiers = field_validator("modifiers", mode="before")(
+        _coerce_modifiers
     )
 
 

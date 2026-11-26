@@ -12,6 +12,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from phentrieve.config import (
+    HPO_CLINICAL_MODIFIER_ROOT,
+    HPO_PHENOTYPIC_ABNORMALITY_ROOT,
+)
 from phentrieve.modifier_models import CURIE_PATTERN
 
 __all__ = [
@@ -27,8 +31,6 @@ __all__ = [
     "get_default_ontology_profile",
 ]
 
-HPO_PHENOTYPIC_ABNORMALITY_ROOT = "HP:0000118"
-HPO_CLINICAL_MODIFIER_ROOT = "HP:0012823"
 HPO_CLINICAL_COURSE_ROOT = "HP:0031797"
 HPO_SEVERITY_ROOT = "HP:0012824"
 HPO_ONSET_ROOT = "HP:0003674"
@@ -159,5 +161,6 @@ def get_default_ontology_profile() -> OntologyProfile:
             roots_kwargs[key] = ontology_cfg[key]
 
     return HPO_DEFAULT_PROFILE.model_copy(
-        update={"roots": OntologyRootsConfig(**roots_kwargs)}
+        deep=True,
+        update={"roots": OntologyRootsConfig(**roots_kwargs)},
     )

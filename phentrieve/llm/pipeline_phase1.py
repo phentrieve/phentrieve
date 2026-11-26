@@ -249,7 +249,7 @@ def prefer_richer_text(current: str | None, incoming: str | None) -> str | None:
     return incoming_text if len(incoming_text) > len(current_text) else current_text
 
 
-def normalize_modifiers(raw_modifiers: Any) -> list[str]:
+def normalize_modifiers(raw_modifiers: Any, *, max_items: int = 16) -> list[str]:
     """Return stripped non-empty modifier phrases, deduplicated preserving order."""
     if not isinstance(raw_modifiers, list):
         return []
@@ -265,6 +265,8 @@ def normalize_modifiers(raw_modifiers: Any) -> list[str]:
         if key not in seen:
             seen.add(key)
             normalized.append(cleaned)
+            if len(normalized) >= max_items:
+                break
     return normalized
 
 

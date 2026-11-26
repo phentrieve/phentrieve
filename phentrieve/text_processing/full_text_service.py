@@ -940,7 +940,7 @@ def run_llm_backend(*, text: str, **kwargs: Any) -> StableBackendResponse:
     if llm_internal_mode == "whole_document_grounded":
         preprocessed = preprocess_grounded_document(
             text=text,
-            language=kwargs.get("language") or DEFAULT_LANGUAGE,
+            language=resolved_language,
             provider=provider,
             extraction_prompt=extraction_prompt,
             chunking_pipeline_config=kwargs.get("chunking_pipeline_config"),
@@ -957,7 +957,7 @@ def run_llm_backend(*, text: str, **kwargs: Any) -> StableBackendResponse:
         )
         logger.info(
             "LLM grounding summary: language=%s chunks=%d groups=%d mode=%s",
-            kwargs.get("language") or DEFAULT_LANGUAGE,
+            resolved_language,
             len(grounded_chunks),
             len(extraction_groups),
             llm_internal_mode,

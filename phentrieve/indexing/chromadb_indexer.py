@@ -28,6 +28,10 @@ def format_index_roots_metadata(index_roots: Sequence[str] | None) -> str:
     all active HPO terms. Non-empty sequences return comma-separated,
     deduplicated, sorted CURIE strings (e.g. ``"HP:0000118,HP:0012823"``).
     """
+    if isinstance(index_roots, (str, bytes)):
+        raise TypeError(
+            "index_roots must be a sequence of CURIE strings, not a bare string."
+        )
     if not index_roots:
         return ""
     cleaned = sorted({root.strip() for root in index_roots if root and root.strip()})
@@ -166,11 +170,15 @@ def build_chromadb_index(
                 for key, value in expected_metadata.items():
                     # Legacy collections without an "index_roots" key are
                     # treated as unrestricted ("").
-                    actual = (
-                        existing_metadata.get(key, "")
-                        if key == "index_roots"
-                        else existing_metadata.get(key)
-                    )
+                    if key == "index_roots":
+                        raw_existing = existing_metadata.get(key)
+                        actual: Any = format_index_roots_metadata(
+                            parse_index_roots_metadata(
+                                raw_existing if isinstance(raw_existing, str) else None
+                            )
+                        )
+                    else:
+                        actual = existing_metadata.get(key)
                     if actual != value:
                         mismatched_metadata[key] = (actual, value)
                 if mismatched_metadata:

@@ -38,9 +38,9 @@ def _filter_batch_result_by_allowed_ids(
 ) -> dict[str, Any]:
     """Post-filter a single ChromaDB-style result dict to ``allowed_term_ids``."""
     raw_metadatas = result.get("metadatas") or [[]]
-    metadatas = raw_metadatas[0] if raw_metadatas else []
+    metadatas = (raw_metadatas[0] or []) if raw_metadatas else []
     raw_ids = result.get("ids") or [[]]
-    ids = raw_ids[0] if raw_ids else []
+    ids = (raw_ids[0] or []) if raw_ids else []
 
     keep_indices: list[int] = []
     for idx, meta in enumerate(metadatas):
