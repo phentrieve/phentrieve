@@ -44,3 +44,25 @@ describe('QueryForm search button', () => {
     expect(wrapper.emitted('submit')).toHaveLength(1);
   });
 });
+
+describe('QueryForm compact full-text field', () => {
+  it('shrinks an empty full-text field to one row once results exist', () => {
+    const wrapper = mountForm({ modelValue: '', isTextProcessModeActive: true, compact: true });
+    expect(wrapper.get('textarea').attributes('rows')).toBe('1');
+    expect(wrapper.find('.search-input--compact').exists()).toBe(true);
+  });
+
+  it('grows back to three rows as soon as the user types, and is full size without results', () => {
+    const typing = mountForm({
+      modelValue: 'Ataxia',
+      isTextProcessModeActive: true,
+      compact: true,
+    });
+    expect(typing.get('textarea').attributes('rows')).toBe('3');
+    expect(typing.find('.search-input--compact').exists()).toBe(false);
+
+    const initial = mountForm({ modelValue: '', isTextProcessModeActive: true });
+    expect(initial.get('textarea').attributes('rows')).toBe('3');
+    expect(initial.find('.search-input--compact').exists()).toBe(false);
+  });
+});

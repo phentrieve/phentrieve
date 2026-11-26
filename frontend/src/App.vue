@@ -676,8 +676,10 @@ body {
   min-height: 100vh;
 }
 
+/* clip, not auto: the window scrolls, and an overflow container here would
+   become the reference box for position: sticky (the search bar) and break it. */
 .main-container {
-  overflow: auto;
+  overflow: clip;
   display: flex;
   flex-direction: column;
   flex-grow: 1;
