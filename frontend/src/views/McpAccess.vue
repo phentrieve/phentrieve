@@ -156,9 +156,8 @@
 
         <!-- Verify tip -->
         <v-alert type="success" variant="tonal" class="mt-6" icon="mdi-check-circle-outline">
-          Once connected, ask your agent to call <code>get_capabilities</code> first — it
-          lists every available tool, the response modes, limits, error codes, and the citation
-          contract.
+          Once connected, ask your agent to call <code>get_capabilities</code> first — it lists
+          every available tool, the response modes, limits, error codes, and the citation contract.
         </v-alert>
 
         <p class="text-caption text-medium-emphasis mt-4 mb-0">
