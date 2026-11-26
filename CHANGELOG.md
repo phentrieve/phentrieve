@@ -18,6 +18,8 @@ together:
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-11-26 (CLI 0.35.0 / API 0.25.0 / Frontend 0.25.0)
+
 ### Changed (breaking)
 
 - **MCP server conforms to GTS Core (gts-conformance v0.3.0) and the
