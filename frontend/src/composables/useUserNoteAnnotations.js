@@ -469,25 +469,59 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
 }
 
 /**
+ * Build a codepoint-index -> UTF-16 code-unit index table when the text
+ * contains non-BMP characters (surrogate pairs). Returns null for BMP-only
+ * text so the fast path does zero allocations.
+ */
+function buildCodepointToUtf16Map(text) {
+  let hasSurrogate = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdfff) {
+      hasSurrogate = true;
+      break;
+    }
+  }
+  if (!hasSurrogate) return null;
+
+  const map = [];
+  let utf16 = 0;
+  for (const ch of text) {
+    map.push(utf16);
+    utf16 += ch.length;
+  }
+  map.push(utf16);
+  return map;
+}
+
+/**
  * Collect the note ranges quoted by modifier segments ({ start, end, text }).
- * A range is dropped when its offsets no longer match the note (redacted or
- * edited text) or when it overlaps a finding span, which wins: chunk-fallback
- * finding spans can cover a whole sentence including the modifier words.
+ * Backend offsets are 0-based Unicode codepoint indices; convert to UTF-16
+ * indices when non-BMP characters are present. A range is dropped when its
+ * quoted text no longer matches the note (redacted or edited text) or when it
+ * overlaps a finding span, which wins: chunk-fallback finding spans can cover
+ * a whole sentence including the modifier words.
  * Overlapping modifier ranges are merged and keep every linked finding.
  */
 function collectModifierRanges(text, annotations, findingRanges) {
   const ranges = [];
+  const cpToUtf16 = buildCodepointToUtf16Map(text);
+  const maxCodepoints = cpToUtf16 ? cpToUtf16.length - 1 : text.length;
+
   (Array.isArray(annotations) ? annotations : []).forEach((ann) => {
     if (!ann || typeof ann.hpoId !== 'string' || !Array.isArray(ann.modifiers)) return;
     ann.modifiers.forEach((modifier) => {
       if (!modifier || typeof modifier.term_id !== 'string') return;
       const label = `${modifier.label || modifier.term_id} (${modifier.term_id})`;
       (Array.isArray(modifier.segments) ? modifier.segments : []).forEach((segment) => {
-        const start = segment?.start;
-        const end = segment?.end;
-        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
-        if (start < 0 || end <= start || end > text.length) return;
-        if (typeof segment.text === 'string' && text.slice(start, end) !== segment.text) return;
+        const rawStart = segment?.start;
+        const rawEnd = segment?.end;
+        if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd)) return;
+        if (rawStart < 0 || rawEnd <= rawStart || rawEnd > maxCodepoints) return;
+        const start = cpToUtf16 ? cpToUtf16.at(rawStart) : rawStart;
+        const end = cpToUtf16 ? cpToUtf16.at(rawEnd) : rawEnd;
+        if (typeof segment.text !== 'string' || segment.text.length === 0) return;
+        if (text.slice(start, end) !== segment.text) return;
         if (findingRanges.some((f) => f.start < end && f.end > start)) return;
         ranges.push({
           start,

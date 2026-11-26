@@ -74,15 +74,17 @@ export const useFullTextCurationStore = defineStore(
       turn.annotations = turn.annotations.map((a) => {
         if (a.id !== id) return a;
         const replacedFrom = a.replacedFrom || { hpoId: a.hpoId, label: a.label };
-        const { modifiers: _modifiers, warnings: _warnings, ...rest } = a;
-        return {
-          ...rest,
+        const next = {
+          ...a,
           hpoId: term.hpoId,
           label: term.label,
           status: term.status || a.status,
           origin: 'manual',
           replacedFrom,
         };
+        delete next.modifiers;
+        delete next.warnings;
+        return next;
       });
     }
 

@@ -282,5 +282,37 @@ describe('usePhenotypeCollection', () => {
         ],
       });
     });
+
+    it('merges newly extracted modifiers onto an already collected phenotype and drops malformed segments', () => {
+      const store = useConversationStore();
+      const { addPhenotype } = usePhenotypeCollection();
+
+      addPhenotype({
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        assertion_status: 'affirmed',
+      });
+      addPhenotype({
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        assertion_status: 'affirmed',
+        modifiers: [
+          {
+            term_id: 'HP:0012828',
+            label: 'Severe',
+            segments: [null, { start: 0, end: 6, text: 'Severe' }, { start: 5, end: 2, text: '' }],
+          },
+        ],
+      });
+
+      expect(store.collectedPhenotypes).toHaveLength(1);
+      expect(store.collectedPhenotypes[0].modifiers).toEqual([
+        {
+          term_id: 'HP:0012828',
+          label: 'Severe',
+          segments: [{ start: 0, end: 6, text: 'Severe' }],
+        },
+      ]);
+    });
   });
 });

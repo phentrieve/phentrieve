@@ -29,7 +29,7 @@
         :show-auto-switch-notice="showAutoSwitchNotice"
         :auto-switch-notice-label="getAutoSwitchNoticeLabel()"
         @set-mode="setMode"
-        @toggle-advanced="showAdvancedOptions = !showAdvancedOptions"
+        @toggle-advanced="toggleAdvancedOptions"
       />
 
       <!-- Advanced Options Panel -->
@@ -553,6 +553,16 @@ function setMode(mode) {
   modeSelectionSource.value = 'manual';
 }
 
+function toggleAdvancedOptions() {
+  const nextVisible = !showAdvancedOptions.value;
+  showAdvancedOptions.value = nextVisible;
+  // Opening settings un-sticks the search bar; jump to top so the panel is not
+  // left off-screen when the user was scrolled down through results.
+  if (nextVisible && hasConversation.value) {
+    scrollToTop();
+  }
+}
+
 function submitQuery(isAutoSubmit = false) {
   return queryInterfaceController.submitQuery(isAutoSubmit);
 }
@@ -618,6 +628,7 @@ fetchAvailableModels();
   z-index: 5;
   padding-top: 8px !important;
   background: rgb(var(--v-theme-background));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   box-shadow: 0 6px 12px -10px rgba(0, 0, 0, 0.35);
 }
 
@@ -630,23 +641,6 @@ fetchAvailableModels();
 
 .query-bubble--document {
   padding: 12px 14px;
-}
-
-/* Webkit Scrollbar Styles */
-.conversation-container::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.conversation-container::-webkit-scrollbar-thumb {
-  background: rgba(var(--v-theme-on-surface), 0.25);
-  border-radius: 4px;
-}
-.conversation-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--v-theme-on-surface), 0.35);
-}
-.conversation-container::-webkit-scrollbar-track {
-  background: rgba(var(--v-theme-on-surface), 0.05);
-  border-radius: 4px;
 }
 
 .query-bubble {

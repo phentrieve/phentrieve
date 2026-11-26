@@ -20,8 +20,8 @@
         class="modifier-chip"
         data-testid="modifier-chip"
         :href="hpoTermUrl(modifier.term_id)"
-        target="_blank"
-        rel="noopener noreferrer"
+        :target="hpoTermUrl(modifier.term_id) ? '_blank' : undefined"
+        :rel="hpoTermUrl(modifier.term_id) ? 'noopener noreferrer' : undefined"
         :aria-label="modifierAriaLabel(modifier)"
         @click.stop
       >
@@ -29,6 +29,7 @@
         <v-tooltip
           activator="parent"
           location="top"
+          open-on-focus
           :text="modifierTooltip(modifier)"
           :aria-label="modifierTooltip(modifier)"
         />
@@ -73,8 +74,11 @@ const validModifiers = computed(() =>
   )
 );
 
+const HPO_ID_RE = /^HP:\d{7}$/;
+
 function hpoTermUrl(termId) {
-  return HPO_TERM_URL(termId);
+  const cleaned = typeof termId === 'string' ? termId.trim() : '';
+  return HPO_ID_RE.test(cleaned) ? HPO_TERM_URL(cleaned) : undefined;
 }
 
 function modifierTooltip(modifier) {

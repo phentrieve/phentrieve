@@ -53,11 +53,26 @@ export function normalizeModifiers(modifiers) {
     seenIds.add(termId);
     const entry = { term_id: termId, label };
     if (Array.isArray(modifier.segments) && modifier.segments.length > 0) {
-      entry.segments = modifier.segments.map((seg) => ({
-        start: seg.start,
-        end: seg.end,
-        text: seg.text,
-      }));
+      const validSegments = modifier.segments
+        .filter(
+          (seg) =>
+            seg &&
+            typeof seg === 'object' &&
+            Number.isInteger(seg.start) &&
+            Number.isInteger(seg.end) &&
+            seg.start >= 0 &&
+            seg.end > seg.start &&
+            typeof seg.text === 'string' &&
+            seg.text.trim().length > 0
+        )
+        .map((seg) => ({
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+        }));
+      if (validSegments.length > 0) {
+        entry.segments = validSegments;
+      }
     }
     if (modifier.source !== undefined && modifier.source !== null) {
       entry.source = modifier.source;
@@ -66,6 +81,12 @@ export function normalizeModifiers(modifiers) {
   });
 
   return normalized;
+}
+
+function normalizeExportAssertionStatus(status) {
+  if (isExcluded(status)) return 'negated';
+  if (isUncertain(status)) return 'uncertain';
+  return 'affirmed';
 }
 
 /**
@@ -78,7 +99,7 @@ export function buildPhenopacketExportPayload({ caseId = null, phenotypes = [] }
     return {
       hpo_id: cp.hpo_id,
       label: cp.label,
-      assertion_status: cp.assertion_status || 'affirmed',
+      assertion_status: normalizeExportAssertionStatus(cp.assertion_status),
       ...(modifiers.length > 0 ? { modifiers } : {}),
     };
   });
@@ -123,6 +144,23 @@ export function usePhenotypeCollection() {
         hpo_id: phenotype.hpo_id,
       });
     } else {
+      // If the phenotype is already collected with the same polarity and the
+      // new hit carries modifiers, merge any unseen modifiers onto the entry.
+      if (modifiers.length > 0) {
+        const existing = conversationStore.collectedPhenotypes.find(
+          (item) => item.hpo_id === phenotype.hpo_id
+        );
+        const incomingStatus = normalizedPhenotype.assertion_status || queryAssertionStatus;
+        const polarityMatches =
+          !incomingStatus ||
+          isExcluded(existing?.assertion_status) === isExcluded(incomingStatus);
+        if (existing && polarityMatches) {
+          const merged = normalizeModifiers([...(existing.modifiers || []), ...modifiers]);
+          if (merged.length > 0) {
+            existing.modifiers = merged;
+          }
+        }
+      }
       logService.debug('Phenotype was duplicate, not added', {
         hpo_id: phenotype.hpo_id,
       });

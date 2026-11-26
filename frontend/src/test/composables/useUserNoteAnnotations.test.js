@@ -705,3 +705,57 @@ describe('trimSelection', () => {
     expect(trimSelection('   ', 5, 8)).toBeNull();
   });
 });
+
+describe('modifier codepoint offsets and segment verification', () => {
+  it('maps Python codepoint offsets accurately after non-BMP Unicode characters', () => {
+    // 🧬 is 1 Python codepoint (index 0) but 2 UTF-16 code units in JS.
+    const emojiNote = '🧬 Severe hearing loss.';
+    // Python codepoints: '🧬'=0, ' '=1, 'Severe'=2..8, ' '=8, 'hearing loss'=9..21
+    const annotations = [
+      {
+        id: 'auto-HP:0000365-0',
+        hpoId: 'HP:0000365',
+        label: 'Hearing impairment',
+        status: 'affirmed',
+        spans: [{ start: 10, end: 22, text: 'hearing loss' }],
+        origin: 'auto',
+        modifiers: [
+          {
+            term_id: 'HP:0012828',
+            label: 'Severe',
+            segments: [{ start: 2, end: 8, text: 'Severe' }],
+          },
+        ],
+      },
+    ];
+
+    const segments = buildSegmentsFromAnnotations(emojiNote, annotations);
+    const modSeg = segments.find((s) => s.modifier);
+    expect(modSeg).toBeTruthy();
+    expect(modSeg.text).toBe('Severe');
+  });
+
+  it('drops modifier segments that omit segment.text so stale offsets cannot slice redacted text', () => {
+    const redactedNote = '[redacted] hearing loss.';
+    const annotations = [
+      {
+        id: 'auto-HP:0000365-0',
+        hpoId: 'HP:0000365',
+        label: 'Hearing impairment',
+        status: 'affirmed',
+        spans: [{ start: 11, end: 23, text: 'hearing loss' }],
+        origin: 'auto',
+        modifiers: [
+          {
+            term_id: 'HP:0012828',
+            label: 'Severe',
+            segments: [{ start: 0, end: 6 }],
+          },
+        ],
+      },
+    ];
+
+    const segments = buildSegmentsFromAnnotations(redactedNote, annotations);
+    expect(segments.some((s) => s.modifier)).toBe(false);
+  });
+});

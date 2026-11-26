@@ -30,6 +30,7 @@
         bg-color="surface"
         color="primary"
         :rows="compact && !queryText ? 1 : 3"
+        :max-rows="compact ? 6 : 12"
         auto-grow
         clearable
         :placeholder="$t('queryInterface.form.notePlaceholder')"

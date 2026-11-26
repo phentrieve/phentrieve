@@ -186,7 +186,7 @@ describe('FullTextWorkspace modifier evidence', () => {
     expect(modifier.element.tagName).toBe('SPAN');
     expect(modifier.attributes('role')).toBeUndefined();
     expect(modifier.attributes('tabindex')).toBe('0');
-    expect(modifier.attributes('aria-label')).toBe(
+    expect(modifier.attributes('aria-description')).toBe(
       'Clinical modifier Severe (HP:0012828) of Hearing impairment (HP:0000365)'
     );
     expect(wrapper.findAll('[data-testid="annotated-note-span"]')).toHaveLength(1);

@@ -95,7 +95,7 @@
                   activePhenotypeId && segment.termIds.includes(activePhenotypeId),
               }"
               tabindex="0"
-              :aria-label="
+              :aria-description="
                 $t('annotatedDocumentPane.modifierAriaLabel', {
                   label: segment.tooltip,
                   finding: segment.findingTooltip,
@@ -331,6 +331,10 @@ export default {
 @media (forced-colors: active) {
   .annotated-note-modifier {
     text-decoration-color: CanvasText;
+  }
+
+  .annotated-note-modifier--active {
+    text-decoration-color: Highlight;
   }
 }
 
