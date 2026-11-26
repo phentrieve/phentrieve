@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,13 @@ from phenopackets import (
     Phenopacket,
     PhenotypicFeature,
     Resource,
+    TimeElement,
 )
 
-from phentrieve.phenopackets.export_models import NormalizedPhenotypeExportRecord
+from phentrieve.phenopackets.export_models import (
+    NormalizedModifier,
+    NormalizedPhenotypeExportRecord,
+)
 from phentrieve.phenopackets.sidecar import (
     build_annotation_sidecar,
     validate_annotation_sidecar,
@@ -31,6 +36,12 @@ logger = logging.getLogger(__name__)
 _MAX_INPUT_TEXT_LENGTH = 1000
 VERIFIED_PHENOPACKET_SCHEMA_VERSION = "2.0"
 _SIDECAR_EXTERNAL_REFERENCE_ID = "phentrieve:annotation_sidecar"
+_SEVERITY_ROOT = "HP:0012824"
+_ONSET_ROOT = "HP:0003674"
+_DEFAULT_MODIFIER_SLOT_ROOTS: dict[str, str] = {
+    "severity": _SEVERITY_ROOT,
+    "onset": _ONSET_ROOT,
+}
 
 
 def _coerce_rank(value: Any) -> int:
@@ -96,10 +107,61 @@ def _temporal_note_parts(
     return parts
 
 
+def _load_ancestors_map_safe() -> Mapping[str, frozenset[str]]:
+    """Load the ontology ancestry map lazily, failing safe to an empty map."""
+    try:
+        from phentrieve.llm.ontology_guard import load_guard_map
+
+        return load_guard_map()
+    except Exception as exc:
+        logger.debug("Failed to load ontology ancestry map for modifiers: %s", exc)
+        return {}
+
+
+def _classify_modifier_slot(
+    term_id: str,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
+) -> str:
+    """Classify a modifier into a Phenopacket slot ('severity', 'onset', or 'modifier')."""
+    resolved_roots = (
+        slot_roots if slot_roots is not None else _DEFAULT_MODIFIER_SLOT_ROOTS
+    )
+    resolved_ancestors = (
+        ancestors_map if ancestors_map is not None else _load_ancestors_map_safe()
+    )
+    term_ancestors = resolved_ancestors.get(term_id, frozenset())
+    for slot in ("severity", "onset"):
+        root = resolved_roots.get(slot)
+        if root and (term_id == root or root in term_ancestors):
+            return slot
+    return "modifier"
+
+
+def _merge_collapsed_modifiers(
+    record: NormalizedPhenotypeExportRecord,
+    others: list[NormalizedPhenotypeExportRecord],
+) -> list[NormalizedModifier]:
+    """Merge modifiers from collapsed same-polarity records in first-seen order."""
+    merged: list[NormalizedModifier] = []
+    seen_ids: set[str] = set()
+    for candidate in (record, *others):
+        if candidate.assertion != record.assertion:
+            continue
+        for modifier in candidate.modifiers:
+            if modifier.term_id not in seen_ids:
+                seen_ids.add(modifier.term_id)
+                merged.append(modifier)
+    return merged
+
+
 def _build_phenotypic_feature(
     record: NormalizedPhenotypeExportRecord,
     *,
     description_parts: list[str] | None = None,
+    modifiers: Sequence[NormalizedModifier] | None = None,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
 ) -> PhenotypicFeature:
     feature_type = OntologyClass(id=record.hpo_id, label=record.label)
     external_reference = None
@@ -118,7 +180,45 @@ def _build_phenotypic_feature(
         )
     ]
     excluded = record.assertion == "negated"
-    return PhenotypicFeature(type=feature_type, excluded=excluded, evidence=evidence)
+    feature_kwargs: dict[str, Any] = {
+        "type": feature_type,
+        "excluded": excluded,
+        "evidence": evidence,
+    }
+
+    active_modifiers = record.modifiers if modifiers is None else modifiers
+    if active_modifiers:
+        resolved_ancestors = (
+            ancestors_map if ancestors_map is not None else _load_ancestors_map_safe()
+        )
+        severity: OntologyClass | None = None
+        onset: TimeElement | None = None
+        other_modifiers: list[OntologyClass] = []
+        seen_ids: set[str] = set()
+        for modifier in active_modifiers:
+            if modifier.term_id in seen_ids:
+                continue
+            seen_ids.add(modifier.term_id)
+            slot = _classify_modifier_slot(
+                modifier.term_id,
+                resolved_ancestors,
+                slot_roots,
+            )
+            ontology_class = OntologyClass(id=modifier.term_id, label=modifier.label)
+            if slot == "severity" and severity is None:
+                severity = ontology_class
+            elif slot == "onset" and onset is None:
+                onset = TimeElement(ontology_class=ontology_class)
+            else:
+                other_modifiers.append(ontology_class)
+        if severity is not None:
+            feature_kwargs["severity"] = severity
+        if onset is not None:
+            feature_kwargs["onset"] = onset
+        if other_modifiers:
+            feature_kwargs["modifiers"] = other_modifiers
+
+    return PhenotypicFeature(**feature_kwargs)
 
 
 def _get_hpo_version_from_db(db_path: Path | str | None = None) -> str:
@@ -185,6 +285,8 @@ def format_as_phenopacket_v2(
     embedding_model: str | None = None,
     hpo_version: str | None = None,
     input_text: str | None = None,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
 ) -> str:
     """Format HPO extraction results as a Phenopacket v2 JSON string.
 
@@ -203,6 +305,9 @@ def format_as_phenopacket_v2(
         embedding_model: Name of embedding model used (e.g., "BAAI/bge-m3").
         hpo_version: Version of HPO used (e.g., "v2025-03-03"). If None, retrieved from database.
         input_text: Original input text/query for provenance tracking in metadata.
+        ancestors_map: Optional ontology ancestry map for routing modifier slots.
+        slot_roots: Optional mapping of Phenopacket slot names ('severity', 'onset')
+            to ontology root IDs.
 
     Returns:
         A JSON string representing the Phenopacket.
@@ -228,6 +333,8 @@ def format_as_phenopacket_v2(
             embedding_model=embedding_model,
             hpo_version=hpo_version,
             input_text=input_text,
+            ancestors_map=ancestors_map,
+            slot_roots=slot_roots,
         )
     elif aggregated_results is not None and len(aggregated_results) > 0:
         return _format_from_aggregated_results(
@@ -236,6 +343,8 @@ def format_as_phenopacket_v2(
             embedding_model=embedding_model,
             hpo_version=hpo_version,
             input_text=input_text,
+            ancestors_map=ancestors_map,
+            slot_roots=slot_roots,
         )
     else:
         # Return valid empty Phenopacket instead of raw "{}" string
@@ -259,6 +368,8 @@ def export_phenopacket_bundle(
     hpo_version: str | None = None,
     input_text: str | None = None,
     include_annotation_sidecar: bool = False,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Export a strict Phenopacket JSON string and optional annotation sidecar."""
     resolved_phentrieve_version = phentrieve_version
@@ -281,6 +392,8 @@ def export_phenopacket_bundle(
         embedding_model=embedding_model,
         hpo_version=resolved_hpo_version,
         input_text=input_text,
+        ancestors_map=ancestors_map,
+        slot_roots=slot_roots,
     )
 
     annotation_sidecar = None
@@ -326,6 +439,8 @@ def _format_from_chunk_results(
     embedding_model: str | None = None,
     hpo_version: str = "unknown",
     input_text: str | None = None,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
 ) -> str:
     """Format phenopacket from chunk-level results with text evidence.
 
@@ -340,15 +455,27 @@ def _format_from_chunk_results(
         embedding_model: Name of embedding model used.
         hpo_version: HPO version string.
         input_text: Original input text for metadata.
+        ancestors_map: Optional ontology ancestry map for modifier slot routing.
+        slot_roots: Optional slot root mapping.
 
     Returns:
         A JSON string representing the Phenopacket.
     """
     phenopacket_id = f"phentrieve-phenopacket-{uuid.uuid4()}"
     normalized_records = _normalize_export_records(chunk_results=chunk_results)
-    phenotypic_features = []
+    selected_records = _select_export_records(normalized_records)
+    merged_modifiers_list = [
+        _merge_collapsed_modifiers(normalized_records[index], others)
+        for index, others in selected_records
+    ]
+    resolved_ancestors = ancestors_map
+    if resolved_ancestors is None and any(merged_modifiers_list):
+        resolved_ancestors = _load_ancestors_map_safe()
 
-    for index, others in _select_export_records(normalized_records):
+    phenotypic_features = []
+    for (index, others), merged_modifiers in zip(
+        selected_records, merged_modifiers_list, strict=True
+    ):
         record = normalized_records[index]
         description_parts = [
             f"Phentrieve retrieval confidence: {(record.confidence or 0.0):.4f}",
@@ -364,7 +491,13 @@ def _format_from_chunk_results(
         if record.evidence_text:
             description_parts.append(f"Source text: {record.evidence_text}")
         phenotypic_features.append(
-            _build_phenotypic_feature(record, description_parts=description_parts)
+            _build_phenotypic_feature(
+                record,
+                description_parts=description_parts,
+                modifiers=merged_modifiers,
+                ancestors_map=resolved_ancestors,
+                slot_roots=slot_roots,
+            )
         )
 
     return _create_phenopacket_json(
@@ -383,6 +516,8 @@ def _format_from_aggregated_results(
     embedding_model: str | None = None,
     hpo_version: str = "unknown",
     input_text: str | None = None,
+    ancestors_map: Mapping[str, frozenset[str]] | None = None,
+    slot_roots: Mapping[str, str] | None = None,
 ) -> str:
     """Format phenopacket from aggregated results (legacy/fallback format).
 
@@ -393,6 +528,8 @@ def _format_from_aggregated_results(
         embedding_model: Name of embedding model used.
         hpo_version: HPO version string.
         input_text: Original input text/query for metadata.
+        ancestors_map: Optional ontology ancestry map for modifier slot routing.
+        slot_roots: Optional slot root mapping.
 
     Returns:
         A JSON string representing the Phenopacket.
@@ -403,9 +540,19 @@ def _format_from_aggregated_results(
         aggregated_results, key=lambda x: _coerce_rank(x.get("rank", 0))
     )
     normalized_results = _normalize_aggregated_results(sorted_results)
+    selected_records = _select_export_records(normalized_results)
+    merged_modifiers_list = [
+        _merge_collapsed_modifiers(normalized_results[index], others)
+        for index, others in selected_records
+    ]
+    resolved_ancestors = ancestors_map
+    if resolved_ancestors is None and any(merged_modifiers_list):
+        resolved_ancestors = _load_ancestors_map_safe()
 
     phenotypic_features = []
-    for index, others in _select_export_records(normalized_results):
+    for (index, others), merged_modifiers in zip(
+        selected_records, merged_modifiers_list, strict=True
+    ):
         result = normalized_results[index]
         confidence = result.confidence or 0.0
         rank = sorted_results[index].get("rank", index + 1)
@@ -417,6 +564,9 @@ def _format_from_aggregated_results(
                     f"Phentrieve retrieval confidence: {confidence:.4f}, Rank: {rank}",
                     *_temporal_note_parts(result, others),
                 ],
+                modifiers=merged_modifiers,
+                ancestors_map=resolved_ancestors,
+                slot_roots=slot_roots,
             )
         )
 

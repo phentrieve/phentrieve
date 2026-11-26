@@ -108,6 +108,20 @@ describe('QueryInterface (characterization)', () => {
     expect(wrapper.exists()).toBe(true);
   });
 
+  it('makes the search bar sticky only once results exist and advanced options are closed', async () => {
+    const wrapper = await mountQueryInterface();
+    const bar = () => wrapper.get('[data-testid="search-bar-container"]');
+    expect(bar().classes()).not.toContain('search-bar-container--sticky');
+
+    wrapper.vm.conversationStore.addQuery({ query: 'Ataxia', loading: false });
+    await wrapper.vm.$nextTick();
+    expect(bar().classes()).toContain('search-bar-container--sticky');
+
+    // Open advanced options can be taller than the viewport, so they scroll away.
+    await setVmState(wrapper, { showAdvancedOptions: true });
+    expect(bar().classes()).not.toContain('search-bar-container--sticky');
+  });
+
   it('renders the search container', async () => {
     const wrapper = await mountQueryInterface();
     expect(wrapper.find('.search-container').exists()).toBe(true);

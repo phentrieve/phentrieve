@@ -10,12 +10,19 @@ fall back to the defaults defined in this module.
 
 import copy
 import functools
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from phentrieve.modifier_models import CURIE_PATTERN
+
 if TYPE_CHECKING:
     import chromadb
+
+_CURIE_RE = re.compile(CURIE_PATTERN)
+HPO_PHENOTYPIC_ABNORMALITY_ROOT = "HP:0000118"
+HPO_CLINICAL_MODIFIER_ROOT = "HP:0012823"
 
 # Public API exports - these are imported by other modules
 __all__ = [
@@ -44,6 +51,9 @@ __all__ = [
     "DEFAULT_LANGUAGE",
     # HPO ontology
     "PHENOTYPE_ROOT",
+    "DEFAULT_FINDING_ROOTS",
+    "DEFAULT_MODIFIER_ROOTS",
+    "DEFAULT_INDEX_ROOTS",
     # HPO data configuration
     "HPO_VERSION",
     "HPO_BASE_URL",
@@ -144,7 +154,10 @@ _DEFAULT_OUTPUT_FORMAT_PROCESS_FALLBACK = "json_lines"
 DEFAULT_CHUNKING_STRATEGY = "sliding_window_punct_conj_cleaned"
 
 # Root for HPO term extraction and depth calculations
-PHENOTYPE_ROOT = "HP:0000118"
+PHENOTYPE_ROOT = HPO_PHENOTYPIC_ABNORMALITY_ROOT
+_DEFAULT_FINDING_ROOTS_FALLBACK: tuple[str, ...] = (HPO_PHENOTYPIC_ABNORMALITY_ROOT,)
+_DEFAULT_MODIFIER_ROOTS_FALLBACK: tuple[str, ...] = (HPO_CLINICAL_MODIFIER_ROOT,)
+_DEFAULT_INDEX_ROOTS_FALLBACK: tuple[str, ...] = ()
 
 # Text Processing Configuration
 
@@ -461,6 +474,44 @@ HPO_DOWNLOAD_TIMEOUT: int = int(
 )
 HPO_CHUNK_SIZE: int = int(
     get_config_value("hpo_data", _DEFAULT_HPO_CHUNK_SIZE_FALLBACK, "chunk_size")
+)
+
+
+def _load_ontology_roots(key: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    """Load an ontology root list from the optional ``ontology:`` YAML block.
+
+    An explicit empty list ``[]`` returns ``()`` (unrestricted), whereas an
+    omitted or ``None`` key falls back to ``fallback``.
+    """
+    ontology_cfg = get_config_value("ontology", None)
+    if not isinstance(ontology_cfg, dict) or key not in ontology_cfg:
+        return fallback
+    raw_value = ontology_cfg[key]
+    if raw_value is None or not isinstance(raw_value, (list, tuple, set, frozenset)):
+        return fallback
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw_value:
+        if not isinstance(item, str):
+            return fallback
+        stripped = item.strip()
+        if not stripped or not _CURIE_RE.match(stripped):
+            return fallback
+        if stripped not in seen:
+            seen.add(stripped)
+            cleaned.append(stripped)
+    return tuple(cleaned)
+
+
+DEFAULT_FINDING_ROOTS: tuple[str, ...] = _load_ontology_roots(
+    "finding_roots", _DEFAULT_FINDING_ROOTS_FALLBACK
+)
+DEFAULT_MODIFIER_ROOTS: tuple[str, ...] = _load_ontology_roots(
+    "modifier_roots", _DEFAULT_MODIFIER_ROOTS_FALLBACK
+)
+DEFAULT_INDEX_ROOTS: tuple[str, ...] = _load_ontology_roots(
+    "index_roots", _DEFAULT_INDEX_ROOTS_FALLBACK
 )
 
 # =============================================================================

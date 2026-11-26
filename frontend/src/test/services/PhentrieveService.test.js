@@ -591,7 +591,7 @@ describe('PhentrieveService', () => {
     });
   });
 
-  it('posts phenopacket export payloads to the backend endpoint', async () => {
+  it('posts phenopacket export payloads including modifiers to the backend endpoint', async () => {
     axios.post.mockResolvedValue({
       data: {
         phenopacket_json: '{"id":"case-1"}',
@@ -599,18 +599,67 @@ describe('PhentrieveService', () => {
       },
     });
 
-    await PhentrieveService.exportPhenopacket({
+    const payload = {
       case_id: 'case-1',
-      phenotypes: [],
-    });
+      phenotypes: [
+        {
+          hpo_id: 'HP:0001250',
+          label: 'Seizure',
+          assertion_status: 'affirmed',
+          modifiers: [
+            {
+              term_id: 'HP:0012828',
+              label: 'Severe',
+              segments: [{ start: 12, end: 18, text: 'severe' }],
+              source: 'llm',
+            },
+          ],
+        },
+      ],
+    };
+
+    await PhentrieveService.exportPhenopacket(payload);
 
     expect(axios.post).toHaveBeenCalledWith(
       '/api/v1/phenopackets/export',
-      {
-        case_id: 'case-1',
-        phenotypes: [],
-      },
+      payload,
       expect.any(Object)
     );
+  });
+
+  describe('extract_modifiers option normalization', () => {
+    it('sends extract_modifiers: true only in LLM mode when enabled', async () => {
+      axios.post.mockResolvedValue({ data: { meta: { extraction_backend: 'llm' } } });
+
+      await PhentrieveService.processText({
+        text: 'Patient had severe seizures.',
+        extractionBackend: 'llm',
+        llmMode: 'two_phase',
+        extractModifiers: true,
+      });
+
+      expect(axios.post.mock.calls[0][1]).toMatchObject({
+        extraction_backend: 'llm',
+        extract_modifiers: true,
+      });
+    });
+
+    it('omits extract_modifiers when disabled or in standard mode', async () => {
+      axios.post.mockResolvedValue({ data: {} });
+
+      await PhentrieveService.processText({
+        text: 'Patient had severe seizures.',
+        extractionBackend: 'llm',
+        extractModifiers: false,
+      });
+      expect(axios.post.mock.calls[0][1]).not.toHaveProperty('extract_modifiers');
+
+      await PhentrieveService.processText({
+        text: 'Patient had severe seizures.',
+        extractionBackend: 'standard',
+        extractModifiers: true,
+      });
+      expect(axios.post.mock.calls[1][1]).not.toHaveProperty('extract_modifiers');
+    });
   });
 });

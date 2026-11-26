@@ -210,6 +210,7 @@ async def process_text_extract_hpo(
                         "extraction_backend": "standard",
                         "llm_mode": None,
                         "llm_internal_mode": None,
+                        "extract_modifiers": False,
                     }
                 )
                 forced_standard_fallback = {
@@ -266,6 +267,7 @@ async def process_text_extract_hpo(
                     "extraction_backend": "standard",
                     "llm_mode": None,
                     "llm_internal_mode": None,
+                    "extract_modifiers": False,
                 }
             )
             forced_standard_fallback = {"fallback_reason": "llm_backend_error"}

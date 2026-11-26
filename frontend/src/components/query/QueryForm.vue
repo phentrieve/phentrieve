@@ -23,12 +23,14 @@
         density="comfortable"
         variant="outlined"
         hide-details="auto"
-        persistent-hint
+        :persistent-hint="!compact"
         class="search-input search-input--text-process ml-2 ml-sm-3 flex-grow-1"
+        :class="{ 'search-input--compact': compact && !queryText }"
         :disabled="isLoading"
         bg-color="surface"
         color="primary"
-        rows="3"
+        :rows="compact && !queryText ? 1 : 3"
+        :max-rows="compact ? 6 : 12"
         auto-grow
         clearable
         :placeholder="$t('queryInterface.form.notePlaceholder')"
@@ -117,6 +119,12 @@ export default {
       default: false,
     },
     isLoading: {
+      type: Boolean,
+      default: false,
+    },
+    // Once results exist the form sits in a sticky bar: an empty full-text
+    // field shrinks to one row and grows again as the user types.
+    compact: {
       type: Boolean,
       default: false,
     },
@@ -228,6 +236,17 @@ export default {
   min-height: 88px;
 }
 
+/* Empty full-text field in the sticky bar: one line until the user types. */
+.search-input--text-process.search-input--compact :deep(.v-field) {
+  min-height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.search-input--text-process.search-input--compact :deep(.v-field__input) {
+  min-height: 48px;
+}
+
 .search-bar {
   border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
   border-radius: 24px;
@@ -289,6 +308,11 @@ export default {
 
   .search-input--text-process :deep(.v-label) {
     font-size: 0.88rem;
+  }
+
+  .search-input--text-process.search-input--compact :deep(.v-field),
+  .search-input--text-process.search-input--compact :deep(.v-field__input) {
+    min-height: 44px;
   }
 }
 </style>

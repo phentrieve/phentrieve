@@ -3,6 +3,8 @@
     :hpo-id="result.hpo_id"
     :label="result.label"
     :color="isCollected ? 'primary-lighten-5' : 'grey-lighten-5'"
+    :modifiers="result.modifiers"
+    :warnings="result.warnings"
   >
     <template #prepend>
       <v-badge :content="rank" color="primary" inline class="mr-2" />

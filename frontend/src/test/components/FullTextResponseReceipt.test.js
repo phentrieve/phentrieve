@@ -324,4 +324,72 @@ describe('FullTextResponseReceipt', () => {
     );
     expect(noteReview.text()).toContain('0 Befunde aus der eingereichten Notiz');
   });
+
+  it('preserves clinical modifiers on findings and collection events and renders them on related findings', async () => {
+    const modifiers = [
+      {
+        term_id: 'HP:0012828',
+        label: 'Severe',
+        segments: [{ start: 12, end: 18, text: 'severe' }],
+        source: 'llm',
+      },
+    ];
+    const familyModifiers = [
+      {
+        term_id: 'HP:0003581',
+        label: 'Adult onset',
+        segments: [{ start: 20, end: 31, text: 'adult onset' }],
+        source: 'llm',
+      },
+    ];
+
+    const wrapper = mountReceipt({
+      item: {
+        id: 'turn-modifiers',
+        response: {
+          aggregated_hpo_terms: [
+            {
+              hpo_id: 'HP:0001250',
+              name: 'Seizure',
+              confidence: 0.94,
+              status: 'present',
+              modifiers,
+            },
+          ],
+          family_history_findings: [
+            {
+              hpo_id: 'HP:0001251',
+              name: 'Ataxia',
+              status: 'present',
+              modifiers: familyModifiers,
+            },
+          ],
+          processed_chunks: [{ chunk_id: 1, text: 'Patient had severe seizures.' }],
+        },
+      },
+    });
+
+    await wrapper.get('.result-item-stub').trigger('click');
+    expect(wrapper.emitted('add-to-collection')[0][0]).toEqual({
+      hpo_id: 'HP:0001250',
+      label: 'Seizure',
+      assertion_status: 'affirmed',
+      modifiers,
+    });
+
+    const addAll = wrapper.get('[data-testid="full-text-response-add-all"]');
+    await addAll.trigger('click');
+    await addAll.trigger('click');
+    expect(wrapper.emitted('add-all-to-collection')[0][0]).toEqual([
+      {
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        assertion_status: 'affirmed',
+        modifiers,
+      },
+    ]);
+
+    const familySection = wrapper.get('[data-testid="full-text-related-findings-family"]');
+    expect(familySection.text()).toContain('Adult onset');
+  });
 });

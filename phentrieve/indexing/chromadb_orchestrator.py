@@ -10,6 +10,7 @@ Supports both single-vector and multi-vector index types (see issue #136).
 import logging
 import os
 import time
+from collections.abc import Sequence
 
 from phentrieve.config import BENCHMARK_MODELS, DEFAULT_HPO_DB_FILENAME, DEFAULT_MODEL
 from phentrieve.data_processing.document_creator import (
@@ -43,6 +44,7 @@ def orchestrate_index_building(
     multi_vector: bool = False,
     model_revision: str | None = None,
     code_revision: str | None = None,
+    index_roots: Sequence[str] | None = None,
 ) -> bool:
     """Orchestrates loading data, models, and building ChromaDB indexes.
 
@@ -59,21 +61,45 @@ def orchestrate_index_building(
         multi_vector: Build multi-vector index (separate vectors per component)
         model_revision: Optional immutable Hugging Face revision for one model build.
         code_revision: Optional immutable revision for model custom code.
+        index_roots: Optional sequence of HPO root CURIEs to restrict indexing to
+            those subtrees. Empty or None indexes all active terms.
 
     Returns:
         True if all requested indexes were built successfully, False otherwise
     """
     start_time = time.time()
     index_type = "multi_vector" if multi_vector else "single_vector"
+    if index_roots is None:
+        from phentrieve.ontology_profiles import get_default_ontology_profile
+
+        effective_roots: Sequence[str] = (
+            get_default_ontology_profile().roots.index_roots
+        )
+    else:
+        if isinstance(index_roots, (str, bytes)):
+            raise TypeError(
+                "index_roots must be a sequence of CURIE strings, not a bare string."
+            )
+        effective_roots = index_roots
+    from phentrieve.ontology_profiles import _normalize_roots
+
+    try:
+        normalized_index_roots = tuple(sorted(_normalize_roots(list(effective_roots))))
+    except ValueError as exc:
+        logging.error("Invalid index_roots configuration: %s", exc)
+        return False
 
     data_dir = resolve_data_path(data_dir_override, "data_dir", get_default_data_dir)
     db_path = data_dir / DEFAULT_HPO_DB_FILENAME
     if not db_path.exists():
         logging.error("HPO database not found: %s", db_path)
         return False
+    ancestors: dict[str, set[str]] | None = None
     with HPODatabase(db_path) as db:
         hpo_version = db.get_metadata("hpo_version")
         hpo_source_sha256 = db.get_metadata("hpo_source_sha256")
+        if normalized_index_roots:
+            ancestors, _ = db.load_graph_data()
     if not hpo_version or hpo_version == "latest":
         logging.error("HPO database is missing a resolved release version")
         return False
@@ -88,6 +114,37 @@ def orchestrate_index_building(
     if not hpo_terms:
         logging.error("Failed to load HPO terms. Run 'phentrieve data prepare' first.")
         return False
+
+    if normalized_index_roots:
+        root_set = set(normalized_index_roots)
+        known_term_ids = {term["id"] for term in hpo_terms}
+        missing_roots = sorted(root_set - known_term_ids)
+        if missing_roots:
+            logging.error(
+                "Unknown index_roots not found in active HPO terms: %s",
+                ",".join(missing_roots),
+            )
+            return False
+        ancestors_map = ancestors or {}
+        total_before = len(hpo_terms)
+        hpo_terms = [
+            term
+            for term in hpo_terms
+            if term["id"] in root_set
+            or bool(ancestors_map.get(term["id"], set()) & root_set)
+        ]
+        logging.info(
+            "Filtered HPO terms by index_roots=%s: kept %d of %d terms.",
+            ",".join(normalized_index_roots),
+            len(hpo_terms),
+            total_before,
+        )
+        if not hpo_terms:
+            logging.error(
+                "No HPO terms matched index_roots=%s.",
+                ",".join(normalized_index_roots),
+            )
+            return False
 
     # Create documents based on index type
     if multi_vector:
@@ -157,6 +214,7 @@ def orchestrate_index_building(
                 hpo_version=hpo_version,
                 hpo_source_sha256=hpo_source_sha256,
                 model_revision=model_revision,
+                index_roots=normalized_index_roots or None,
             )
             if result:
                 logging.info(f"✓ Index built successfully for model: {model_name}")

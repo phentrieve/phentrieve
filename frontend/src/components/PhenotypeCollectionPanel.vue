@@ -91,6 +91,11 @@
           <v-list-item-subtitle class="wrap-text">
             {{ phenotype.label }}
           </v-list-item-subtitle>
+          <ModifierChips
+            v-if="phenotype.modifiers && phenotype.modifiers.length > 0"
+            :modifiers="phenotype.modifiers"
+            class="mt-1"
+          />
 
           <template #append>
             <v-tooltip
@@ -321,6 +326,8 @@
 </template>
 
 <script>
+import ModifierChips from './ModifierChips.vue';
+
 /**
  * PhenotypeCollectionPanel - Case workspace drawer holding the collected HPO terms.
  * Extracted from QueryInterface.vue to reduce component complexity.
@@ -331,7 +338,10 @@ import { useDiseaseRankingStore } from '../stores/diseaseRanking';
 
 export default {
   name: 'PhenotypeCollectionPanel',
-  components: { DiseaseRankingPanel },
+  components: {
+    DiseaseRankingPanel,
+    ModifierChips,
+  },
   props: {
     phenotypes: { type: Array, default: () => [] },
     panelOpen: { type: Boolean, default: false },

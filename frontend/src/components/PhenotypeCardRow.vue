@@ -20,6 +20,11 @@
               >{{ label }}</span
             >
             <slot name="inline-tools" />
+            <FindingWarningsIndicator
+              v-if="warnings && warnings.length > 0"
+              :warnings="warnings"
+              class="ml-1"
+            />
           </div>
           <a
             :href="hpoTermUrl(hpoId)"
@@ -32,6 +37,11 @@
             <span class="phenotype-card-row__hpo-id">{{ hpoId }}</span>
             <v-icon size="x-small" class="ml-1">mdi-open-in-new</v-icon>
           </a>
+          <ModifierChips
+            v-if="modifiers && modifiers.length > 0"
+            :modifiers="modifiers"
+            class="mt-1"
+          />
         </div>
 
         <div v-if="$slots.actions" class="d-flex align-center ml-auto phenotype-card-row__actions">
@@ -50,12 +60,16 @@
 
 <script setup>
 import { HPO_TERM_URL } from '../constants/urls';
+import ModifierChips from './ModifierChips.vue';
+import FindingWarningsIndicator from './FindingWarningsIndicator.vue';
 
 defineProps({
   hpoId: { type: String, required: true },
   label: { type: String, required: true },
   color: { type: String, default: 'grey-lighten-5' },
   clickable: { type: Boolean, default: false },
+  modifiers: { type: Array, default: () => [] },
+  warnings: { type: Array, default: () => [] },
 });
 
 defineEmits(['click']);

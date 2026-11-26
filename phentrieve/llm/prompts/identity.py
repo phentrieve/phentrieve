@@ -9,11 +9,15 @@ from typing import Any
 from phentrieve.llm.config import DEFAULT_LLM_LANGUAGE
 from phentrieve.llm.prompts.loader import (
     MAPPING_BATCH_VARIANT,
+    MODIFIER_MAPPING_BATCH_VARIANT,
+    MODIFIER_MAPPING_VARIANT,
+    MODIFIERS_EXTRACTION_VARIANT,
     resolve_prompt_template,
 )
 
 PROMPT_IDENTITY_SCHEMA = "phentrieve-prompt-bundle/v1"
 PROMPT_BEHAVIOR_VERSION = "10"
+PROMPT_MODIFIERS_BEHAVIOR_VERSION = "11"
 
 _DOCUMENT_SENTINEL = "<PHENTRIEVE_DOCUMENT_SENTINEL>"
 _CHUNK_INDEX_SENTINEL = "<PHENTRIEVE_CHUNK_INDEX_SENTINEL>"
@@ -21,6 +25,13 @@ _TWO_PHASE_COMPONENTS = (
     ("extraction", None),
     ("mapping", "mapping"),
     ("batch_mapping", MAPPING_BATCH_VARIANT),
+)
+_TWO_PHASE_MODIFIER_COMPONENTS = (
+    ("extraction", MODIFIERS_EXTRACTION_VARIANT),
+    ("mapping", "mapping"),
+    ("batch_mapping", MAPPING_BATCH_VARIANT),
+    ("modifier_mapping", MODIFIER_MAPPING_VARIANT),
+    ("batch_modifier_mapping", MODIFIER_MAPPING_BATCH_VARIANT),
 )
 
 
@@ -68,12 +79,23 @@ def build_prompt_bundle_identity(
     mode: str,
     language: str,
     prompt_dir: Path | None = None,
+    *,
+    extract_modifiers: bool = False,
 ) -> PromptBundleIdentity:
     if mode != "two_phase":
         raise ValueError(f"Unsupported prompt bundle mode: {mode!r}")
 
+    component_specs = (
+        _TWO_PHASE_MODIFIER_COMPONENTS if extract_modifiers else _TWO_PHASE_COMPONENTS
+    )
+    behavior_version = (
+        PROMPT_MODIFIERS_BEHAVIOR_VERSION
+        if extract_modifiers
+        else PROMPT_BEHAVIOR_VERSION
+    )
+
     components: list[PromptComponentIdentity] = []
-    for component_name, variant in _TWO_PHASE_COMPONENTS:
+    for component_name, variant in component_specs:
         resolved_language = (
             language if component_name == "extraction" else DEFAULT_LLM_LANGUAGE
         )
@@ -123,14 +145,14 @@ def build_prompt_bundle_identity(
         ],
         "language": language,
         "mode": mode,
-        "prompt_behavior_version": PROMPT_BEHAVIOR_VERSION,
+        "prompt_behavior_version": behavior_version,
         "schema_version": PROMPT_IDENTITY_SCHEMA,
     }
     return PromptBundleIdentity(
         schema_version=PROMPT_IDENTITY_SCHEMA,
         mode=mode,
         language=language,
-        prompt_behavior_version=PROMPT_BEHAVIOR_VERSION,
+        prompt_behavior_version=behavior_version,
         components=component_tuple,
         sha256=_sha256(bundle_content),
     )

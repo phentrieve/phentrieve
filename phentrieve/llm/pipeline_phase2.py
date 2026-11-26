@@ -17,7 +17,12 @@ from phentrieve.llm.pipeline_phase1 import (
     normalize_category,
     tokenize,
 )
-from phentrieve.llm.prompts.loader import get_batch_mapping_prompt, get_mapping_prompt
+from phentrieve.llm.prompts.loader import (
+    get_batch_mapping_prompt,
+    get_batch_modifier_mapping_prompt,
+    get_mapping_prompt,
+    get_modifier_mapping_prompt,
+)
 from phentrieve.llm.types import (
     LLMBatchMappingSelection,
     LLMBatchMappingSelections,
@@ -26,6 +31,9 @@ from phentrieve.llm.types import (
     LLMPhenotypeEvidence,
 )
 from phentrieve.llm.utils import parse_assertion, token_sort_similarity
+from phentrieve.modifier_models import ModifierSegment
+
+DEFAULT_MAX_MODIFIER_CANDIDATES = 5
 
 CATEGORY_TO_ASSERTION = {
     "abnormal": PRESENT_ASSERTION,
@@ -197,6 +205,31 @@ def _shared_retrieval_query(candidates: list[dict[str, Any]]) -> str | None:
     return max(counts, key=lambda query: counts[query])
 
 
+def _compact_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    shared_query: str | None,
+) -> list[dict[str, Any]]:
+    compact_list: list[dict[str, Any]] = []
+    for candidate in candidates:
+        compact_candidate = {
+            "id": candidate["hpo_id"],
+            "term": candidate["term_name"],
+            "retrieval_score": _round_retrieval_score(candidate.get("score")),
+        }
+        retrieval_query = candidate.get("retrieval_query")
+        if retrieval_query and retrieval_query != shared_query:
+            compact_candidate["retrieval_query"] = retrieval_query
+        matched_text = candidate.get("matched_text")
+        # Exact comparison: a difference in case or spacing is kept.
+        if matched_text and matched_text != candidate["term_name"]:
+            compact_candidate["matched_text"] = matched_text
+        if candidate.get("matched_component"):
+            compact_candidate["matched_component"] = candidate.get("matched_component")
+        compact_list.append(compact_candidate)
+    return compact_list
+
+
 def compact_mapping_item(
     item: dict[str, Any],
     *,
@@ -234,23 +267,47 @@ def compact_mapping_item(
     # matched text, as before). Candidate count and order are unchanged.
     if shared_query is not None:
         compact_item["retrieval_query"] = shared_query
-    compact_item["candidates"] = []
-    for candidate in candidates:
-        compact_candidate = {
-            "id": candidate["hpo_id"],
-            "term": candidate["term_name"],
-            "retrieval_score": _round_retrieval_score(candidate.get("score")),
-        }
-        retrieval_query = candidate.get("retrieval_query")
-        if retrieval_query and retrieval_query != shared_query:
-            compact_candidate["retrieval_query"] = retrieval_query
-        matched_text = candidate.get("matched_text")
-        # Exact comparison: a difference in case or spacing is kept.
-        if matched_text and matched_text != candidate["term_name"]:
-            compact_candidate["matched_text"] = matched_text
-        if candidate.get("matched_component"):
-            compact_candidate["matched_component"] = candidate.get("matched_component")
-        compact_item["candidates"].append(compact_candidate)
+    compact_item["candidates"] = _compact_candidates(
+        candidates, shared_query=shared_query
+    )
+    if item_id is not None:
+        compact_item["item_id"] = item_id
+    return compact_item
+
+
+def compact_modifier_mapping_item(
+    item: dict[str, Any],
+    *,
+    item_id: str | None = None,
+    max_candidates: int = DEFAULT_MAX_MODIFIER_CANDIDATES,
+) -> dict[str, Any]:
+    grounded_context = dict(item.get("grounded_context", {}) or {})
+    neighbor_texts = [
+        normalize_grounded_text(text)
+        for text in grounded_context.get("neighbor_chunk_texts", [])
+        if normalize_grounded_text(text)
+    ]
+    raw_finding = item.get("finding_term") or {}
+    finding_term = {
+        "id": str(raw_finding.get("id", "")).strip(),
+        "label": str(raw_finding.get("label", "")).strip(),
+    }
+    candidates = list(item.get("candidates", []))[: max(int(max_candidates), 0)]
+    shared_query = _shared_retrieval_query(candidates)
+    compact_item: dict[str, Any] = {
+        "phrase": str(item.get("phrase", "")).strip(),
+        "finding_term": finding_term,
+        "primary_chunk_text": normalize_grounded_text(
+            grounded_context.get("primary_chunk_text")
+        ),
+    }
+    if neighbor_texts:
+        compact_item["neighbor_chunk_texts"] = neighbor_texts
+    if shared_query is not None:
+        compact_item["retrieval_query"] = shared_query
+    compact_item["candidates"] = _compact_candidates(
+        candidates, shared_query=shared_query
+    )
     if item_id is not None:
         compact_item["item_id"] = item_id
     return compact_item
@@ -286,7 +343,7 @@ def build_grounded_context(
         "primary_chunk_text": (
             primary.get("text", "")
             if primary
-            else item.get("evidence_text", item.get("phrase", ""))
+            else item.get("evidence_text") or item.get("phrase", "")
         ),
         "neighbor_chunk_texts": [chunk.get("text", "") for chunk in neighbors],
     }
@@ -374,6 +431,77 @@ def run_mapping_batch(
     )
     usage = dict(getattr(provider, "last_usage", {}) or {})
     return response, usage
+
+
+def run_modifier_mapping_batch(
+    *,
+    provider,
+    batch: list[dict[str, Any]],
+    mapping_prompt,
+) -> tuple[LLMMappingSelection | LLMBatchMappingSelections, dict[str, int]]:
+    response_model: type[LLMMappingSelection] | type[LLMBatchMappingSelections]
+    if len(batch) == 1:
+        batch_mapping_prompt = get_modifier_mapping_prompt(mapping_prompt.language)
+        candidate_payload = json.dumps(
+            compact_modifier_mapping_item(batch[0]),
+            ensure_ascii=False,
+        )
+        response_model = LLMMappingSelection
+    else:
+        batch_mapping_prompt = get_batch_modifier_mapping_prompt(
+            mapping_prompt.language
+        )
+        candidate_payload = json.dumps(
+            {
+                "items": [
+                    compact_modifier_mapping_item(
+                        item,
+                        item_id=mapping_batch_item_id(index),
+                    )
+                    for index, item in enumerate(batch)
+                ]
+            },
+            ensure_ascii=False,
+        )
+        response_model = LLMBatchMappingSelections
+    response = provider.run_structured_prompt(
+        system_prompt=batch_mapping_prompt.render_system_prompt(
+            language=batch_mapping_prompt.language
+        ),
+        user_prompt=batch_mapping_prompt.render_user_prompt(
+            candidate_payload,
+            language=batch_mapping_prompt.language,
+        ),
+        response_model=response_model,
+    )
+    usage = dict(getattr(provider, "last_usage", {}) or {})
+    return response, usage
+
+
+def finding_already_expresses_modifier(
+    *,
+    finding_label: str,
+    modifier_label: str,
+    modifier_phrase: str,
+) -> bool:
+    """Return True when ``finding_label`` already encodes the modifier.
+
+    Conservative deterministic anti-double-encoding check: suppresses obvious
+    lexical overlaps (e.g. ``"bilateral"`` on ``"Bilateral cataract"``) before
+    local acceptance or LLM mapping.
+    """
+    finding_tokens = tokenize(finding_label)
+    if not finding_tokens:
+        return False
+    for candidate_text in (modifier_label, modifier_phrase):
+        tokens = tokenize(candidate_text)
+        if (
+            tokens
+            and any(len(token) > 1 for token in tokens)
+            and tokens <= finding_tokens
+        ):
+            return True
+    return False
 
 
 def optional_float(value: Any) -> float | None:
@@ -551,10 +679,51 @@ def explicit_null_item_ids(
     }
 
 
+def _merge_modifier_segments_unique(
+    existing: list[ModifierSegment], incoming: list[ModifierSegment]
+) -> list[ModifierSegment]:
+    merged: list[ModifierSegment] = []
+    seen: set[tuple[int, int, str]] = set()
+    for segment in (*existing, *incoming):
+        key = (segment.start, segment.end, segment.text)
+        if key not in seen:
+            seen.add(key)
+            merged.append(segment)
+    return merged
+
+
 def _merge_term_evidence(target: LLMPhenotype, term: LLMPhenotype) -> None:
     target.evidence_records.extend(term.evidence_records)
     if not target.evidence and term.evidence:
         target.evidence = term.evidence
+    if term.modifiers:
+        index_by_term_id = {
+            modifier.term_id: idx for idx, modifier in enumerate(target.modifiers)
+        }
+        for incoming in term.modifiers:
+            existing_idx = index_by_term_id.get(incoming.term_id)
+            if existing_idx is None:
+                index_by_term_id[incoming.term_id] = len(target.modifiers)
+                target.modifiers.append(incoming.model_copy(deep=True))
+            else:
+                current = target.modifiers[existing_idx]
+                merged_segments = _merge_modifier_segments_unique(
+                    current.segments, incoming.segments
+                )
+                source = current.source or incoming.source
+                target.modifiers[existing_idx] = current.model_copy(
+                    update={"segments": merged_segments, "source": source}
+                )
+    if term.warnings:
+        seen_warnings = {
+            (warning.code, warning.term_id, warning.message)
+            for warning in target.warnings
+        }
+        for warning in term.warnings:
+            key = (warning.code, warning.term_id, warning.message)
+            if key not in seen_warnings:
+                seen_warnings.add(key)
+                target.warnings.append(warning.model_copy(deep=True))
 
 
 def deduplicate_terms(terms: list[LLMPhenotype]) -> list[LLMPhenotype]:

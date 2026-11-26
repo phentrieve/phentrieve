@@ -1,15 +1,15 @@
 <template>
   <div class="fill-height">
-    <div class="content-wrapper">
-      <div class="d-flex justify-center align-center pb-1">
+    <div class="content-wrapper" :class="{ 'content-wrapper--compact': hasConversation }">
+      <div class="d-flex justify-center align-center pb-1 home-header">
         <v-tooltip location="bottom" :aria-label="t('home.resetTooltip')">
           <template #activator="{ props: tooltipProps }">
             <img
               v-bind="tooltipProps"
               src="/favicon.svg"
               :alt="t('home.logoAlt', 'Phentrieve Logo - Click to reset')"
-              width="65"
-              height="65"
+              :width="hasConversation ? 32 : 65"
+              :height="hasConversation ? 32 : 65"
               class="mr-2 logo-icon"
               loading="lazy"
               role="button"
@@ -28,7 +28,12 @@
           ><span class="logo-visible">trieve</span>
         </h1>
       </div>
-      <div class="text-center px-4 py-0" style="max-width: 600px">
+      <div
+        v-if="!hasConversation"
+        data-testid="home-welcome-text"
+        class="text-center px-4 py-0"
+        style="max-width: 600px"
+      >
         <p class="text-body-2 text-medium-emphasis mb-1">
           {{ t('queryInterface.welcomeText') }}
         </p>
@@ -68,7 +73,7 @@
 </template>
 
 <script>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import QueryInterface from '@/components/QueryInterface.vue';
 import { useLogStore } from '@/stores/log';
 import { useConversationStore } from '@/stores/conversation';
@@ -84,6 +89,10 @@ export default {
     const logStore = useLogStore();
     const conversationStore = useConversationStore();
     const { t } = useI18n();
+
+    // Once there are results the header shrinks to a small logo row, so the
+    // sticky search bar and the results get the screen.
+    const hasConversation = computed(() => conversationStore.hasConversation);
 
     // Dialog state
     const showResetDialog = ref(false);
@@ -102,6 +111,7 @@ export default {
     return {
       logStore,
       conversationStore,
+      hasConversation,
       t,
       showResetDialog,
       handleReset,
@@ -150,6 +160,14 @@ export default {
   align-items: center;
   width: 100%;
   padding-top: 10vh; /* Replace absolute positioning with padding */
+}
+
+.content-wrapper--compact {
+  padding-top: 8px;
+}
+
+.content-wrapper--compact .logo-text {
+  font-size: 1.125rem !important;
 }
 
 .fill-height {

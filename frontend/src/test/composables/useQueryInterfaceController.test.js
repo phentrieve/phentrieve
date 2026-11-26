@@ -185,6 +185,49 @@ describe('useQueryInterfaceController', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(state.expandedUserNotes.value).toEqual({ 'turn-1': true });
+    expect(service.processText.mock.calls[0][0]).not.toHaveProperty('extractModifiers');
+  });
+
+  it('forwards extractModifiers only when enabled in LLM text-process mode', async () => {
+    const llmState = createState({
+      queryText: ref('Patient had severe seizures since infancy.'),
+      selectedModel: ref('m'),
+      forceEndpointMode: ref('textProcess'),
+      textProcessOptions: ref({
+        extractionBackend: 'llm',
+        llmModel: 'llm-a',
+        llmMode: 'two_phase',
+        extractModifiers: true,
+      }),
+    });
+    const { controller: llmController, service: llmService } = createController({
+      state: llmState,
+    });
+
+    await llmController.submitQuery();
+    expect(llmService.processText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extractionBackend: 'llm',
+        extractModifiers: true,
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+
+    const standardState = createState({
+      queryText: ref('Patient had severe seizures since infancy.'),
+      selectedModel: ref('m'),
+      forceEndpointMode: ref('textProcess'),
+      textProcessOptions: ref({
+        extractionBackend: 'standard',
+        extractModifiers: true,
+      }),
+    });
+    const { controller: stdController, service: stdService } = createController({
+      state: standardState,
+    });
+
+    await stdController.submitQuery();
+    expect(stdService.processText.mock.calls[0][0]).not.toHaveProperty('extractModifiers');
   });
 
   it('cancelQuery drops the pending turn and gives the text back', async () => {

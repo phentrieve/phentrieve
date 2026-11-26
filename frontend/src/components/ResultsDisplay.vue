@@ -263,6 +263,9 @@ export default {
         hpo_id: phenotype.hpo_id,
         label: phenotype.name || phenotype.label, // API uses 'name' in text processing mode
         assertion_status: assertionStatus,
+        ...(Array.isArray(phenotype.modifiers) && phenotype.modifiers.length > 0
+          ? { modifiers: phenotype.modifiers }
+          : {}),
       };
 
       // Log the assertion status being used

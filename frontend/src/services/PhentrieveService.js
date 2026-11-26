@@ -196,11 +196,14 @@ class PhentrieveService {
   _normalizeTextProcessPayload(textProcessingData) {
     const extractionBackend =
       textProcessingData.extraction_backend ?? textProcessingData.extractionBackend ?? 'standard';
+    const rawExtractModifiers =
+      textProcessingData.extract_modifiers ?? textProcessingData.extractModifiers;
 
     const payload = {
       text: textProcessingData.text ?? textProcessingData.text_content ?? '',
       extraction_backend: extractionBackend,
       llm_mode: textProcessingData.llm_mode ?? textProcessingData.llmMode ?? null,
+      extract_modifiers: extractionBackend === 'llm' && rawExtractModifiers === true ? true : null,
       // Nulls are dropped below and the API would then default to 'en' (#458).
       language: textProcessingData.language ?? 'auto',
       chunking_strategy:

@@ -57,6 +57,11 @@
                   }}
                 </v-tooltip>
               </v-btn>
+              <FindingWarningsIndicator
+                v-if="term.warnings && term.warnings.length > 0"
+                :warnings="term.warnings"
+                class="ml-1"
+              />
             </div>
             <v-chip
               v-if="term.status && term.status !== 'unknown'"
@@ -75,6 +80,12 @@
           <div class="text-body-1 text-high-emphasis hpo-label mb-2">
             {{ term.name || term.label }}
           </div>
+
+          <ModifierChips
+            v-if="term.modifiers && term.modifiers.length > 0"
+            :modifiers="term.modifiers"
+            class="mb-2"
+          />
 
           <!-- Bottom Row: Scores, Evidence Details, Add Button -->
           <div class="d-flex align-center justify-space-between flex-wrap">
@@ -179,7 +190,14 @@
               @click.stop="
                 $emit(
                   'add-to-collection',
-                  { hpo_id: term.hpo_id, name: term.name, label: term.name || term.label },
+                  {
+                    hpo_id: term.hpo_id,
+                    name: term.name,
+                    label: term.name || term.label,
+                    ...(term.modifiers && term.modifiers.length > 0
+                      ? { modifiers: term.modifiers }
+                      : {}),
+                  },
                   term.status || 'affirmed'
                 )
               "
@@ -231,6 +249,8 @@
 <script setup>
 import { ref } from 'vue';
 import SimilarityScore from './SimilarityScore.vue';
+import ModifierChips from './ModifierChips.vue';
+import FindingWarningsIndicator from './FindingWarningsIndicator.vue';
 import { HPO_TERM_URL } from '../constants/urls';
 
 const props = defineProps({

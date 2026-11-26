@@ -1,11 +1,18 @@
 <template>
   <div class="search-container mx-auto px-2">
-    <!-- Clean Search Bar with Integrated Button -->
-    <div class="search-bar-container pt-0 px-2 pb-2 pa-sm-3">
+    <!-- Clean Search Bar with Integrated Button. Sticky once results exist, so
+         the results scroll with the page underneath it; not while the advanced
+         options are open, which can be taller than the viewport. -->
+    <div
+      data-testid="search-bar-container"
+      class="search-bar-container pt-0 px-2 pb-2 pa-sm-3"
+      :class="{ 'search-bar-container--sticky': hasConversation && !showAdvancedOptions }"
+    >
       <QueryForm
         v-model="queryText"
         :is-text-process-mode-active="isTextProcessModeActive"
         :is-loading="isLoading"
+        :compact="hasConversation"
         :query-input-label="$t('queryInterface.accessibility.queryInputLabel')"
         :query-input-description="getQueryInputDescription()"
         :text-process-input-label="$t('queryInterface.accessibility.textProcessInputLabel')"
@@ -22,7 +29,7 @@
         :show-auto-switch-notice="showAutoSwitchNotice"
         :auto-switch-notice-label="getAutoSwitchNoticeLabel()"
         @set-mode="setMode"
-        @toggle-advanced="showAdvancedOptions = !showAdvancedOptions"
+        @toggle-advanced="toggleAdvancedOptions"
       />
 
       <!-- Advanced Options Panel -->
@@ -212,6 +219,7 @@ defineOptions({
 const DEFAULT_TEXT_PROCESS_LLM_OPTIONS = Object.freeze({
   llmModel: 'gemini-3.1-flash-lite',
   llmMode: 'two_phase',
+  extractModifiers: false,
 });
 const REDACTED_QUERY_PLACEHOLDER = '[redacted]';
 
@@ -219,6 +227,7 @@ const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const conversationStore = useConversationStore();
+const hasConversation = computed(() => conversationStore.hasConversation);
 const fullTextCurationStore = useFullTextCurationStore();
 const queryPreferencesStore = useQueryPreferencesStore();
 const piiReviewFlow = usePiiReviewFlow({ logService });
@@ -455,9 +464,14 @@ function fetchAvailableModels() {
 
 function scrollToTop() {
   nextTick(() => {
+    // The page scrolls (not the conversation), so jump the page back to the
+    // newest turn under the sticky search bar.
     const container = conversationContainer.value;
     if (container) {
-      container.scrollTo({ top: 0, behavior: 'auto' }); // Use auto for instant jump
+      container.closest?.('.main-container')?.scrollTo?.({ top: 0, behavior: 'auto' });
+    }
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
     }
   });
 }
@@ -539,6 +553,16 @@ function setMode(mode) {
   modeSelectionSource.value = 'manual';
 }
 
+function toggleAdvancedOptions() {
+  const nextVisible = !showAdvancedOptions.value;
+  showAdvancedOptions.value = nextVisible;
+  // Opening settings un-sticks the search bar; jump to top so the panel is not
+  // left off-screen when the user was scrolled down through results.
+  if (nextVisible && hasConversation.value) {
+    scrollToTop();
+  }
+}
+
 function submitQuery(isAutoSubmit = false) {
   return queryInterfaceController.submitQuery(isAutoSubmit);
 }
@@ -587,36 +611,36 @@ fetchAvailableModels();
 }
 
 /* Conversation and Bubbles */
+/* The conversation grows with the page instead of scrolling in its own box:
+   a nested scroll area under a fixed header left only half the screen for
+   results on laptop heights. */
 .conversation-container {
-  max-height: calc(100vh - 280px); /* Adjust based on final header/footer height */
   min-height: 200px;
-  overflow-y: auto;
   overflow-x: hidden;
   padding: 16px 8px; /* Add some padding */
-  scroll-behavior: smooth;
-  margin-bottom: 24px;
+  margin-bottom: 72px; /* Clear the fixed app footer */
   border-radius: 8px;
+}
+
+.search-bar-container--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-top: 8px !important;
+  background: rgb(var(--v-theme-background));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  box-shadow: 0 6px 12px -10px rgba(0, 0, 0, 0.35);
+}
+
+/* Below this width the fixed top-right actions would sit over the search bar. */
+@media (max-width: 1120px) {
+  .search-bar-container--sticky {
+    padding-top: 48px !important;
+  }
 }
 
 .query-bubble--document {
   padding: 12px 14px;
-}
-
-/* Webkit Scrollbar Styles */
-.conversation-container::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.conversation-container::-webkit-scrollbar-thumb {
-  background: rgba(var(--v-theme-on-surface), 0.25);
-  border-radius: 4px;
-}
-.conversation-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--v-theme-on-surface), 0.35);
-}
-.conversation-container::-webkit-scrollbar-track {
-  background: rgba(var(--v-theme-on-surface), 0.05);
-  border-radius: 4px;
 }
 
 .query-bubble {

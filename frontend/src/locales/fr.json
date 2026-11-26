@@ -191,6 +191,7 @@
       "llmModes": {
         "twoPhase": "Extraction en deux phases"
       },
+      "extractModifiers": "Extraire les modificateurs cliniques",
       "llmDisclosure": "L'extraction LLM peut transmettre le texte soumis à un fournisseur d'IA externe configuré par l'exploitant du service. Utilisez uniquement du texte de recherche ; ne soumettez pas d'informations directement identifiantes.",
       "chunkingStrategy": "Stratégie de découpage",
       "windowSize": "Taille de la fenêtre (tokens)",
@@ -213,6 +214,7 @@
       "embeddingModel": "Sélectionner le modèle d'IA utilisé pour le plongement vectoriel (embedding) du texte",
       "similarityThreshold": "Définir le score de similarité minimal requis pour les résultats",
       "includeDetails": "Inclure les définitions et synonymes des termes HPO dans les résultats de recherche (limité à 20 résultats pour des raisons de performance)",
+      "extractModifiers": "Extraire les modificateurs cliniques HPO (comme la sévérité, le début ou la latéralité) associés aux observations en mode LLM",
       "language": "Sélectionner la langue pour le traitement des requêtes et la détection des assertions",
       "subjectId": "Saisir un identifiant pour le sujet",
       "sex": "Sélectionner le sexe biologique du sujet",
@@ -235,7 +237,8 @@
       "similarityThresholdDescription": "Ajustez le seuil de similarité minimal. Valeur actuelle : {similarityThreshold}",
       "selectQueryLanguage": "Sélectionner la langue de requête",
       "queryLanguageDescription": "Choisissez la langue pour le traitement de la requête. Sélection actuelle : {selectedLanguage}",
-      "includeDetailsSwitch": "Inclure les définitions et synonymes des termes HPO"
+      "includeDetailsSwitch": "Inclure les définitions et synonymes des termes HPO",
+      "extractModifiersSwitch": "Extraire les modificateurs cliniques en mode LLM"
     },
     "form": {
       "queryPill": "Requête",
@@ -283,7 +286,10 @@
       "manual": "Manuel"
     },
     "spanAriaLabel": "Modifier l'annotation : {label}",
-    "wordCount": "{count} mot | {count} mots"
+    "wordCount": "{count} mot | {count} mots",
+    "modifierEyebrow": "Modificateur clinique",
+    "modifierOf": "Modifie : {finding}",
+    "modifierAriaLabel": "Modificateur clinique {label} de {finding}"
   },
   "hpoTermPicker": {
     "changeTitle": "Modifier le terme HPO",
@@ -345,6 +351,8 @@
     "hideDetails": "Masquer les détails",
     "definitionLabel": "Définition",
     "synonymsLabel": "Synonymes",
+    "modifiersLabel": "Modificateurs",
+    "warningsLabel": "Avertissements d'extraction",
     "textProcess": {
       "title": "Analyse en texte intégral",
       "chunksTitle": "Fragments traités et termes HPO par fragment",
