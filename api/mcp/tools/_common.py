@@ -41,7 +41,8 @@ ChunkStrategy = Annotated[
         "sliding_window_cleaned",
         "sliding_window_punct_cleaned",
         "sliding_window_punct_conj_cleaned",
-    ],
+    ]
+    | None,
     Field(
         description="Predefined chunking strategy. Null = 'simple' (paragraph + "
         "sentence). Semantic/sliding_window strategies need the embedding model."

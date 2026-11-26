@@ -156,7 +156,7 @@
 
         <!-- Verify tip -->
         <v-alert type="success" variant="tonal" class="mt-6" icon="mdi-check-circle-outline">
-          Once connected, ask your agent to call <code>phentrieve_get_capabilities</code> first — it
+          Once connected, ask your agent to call <code>get_capabilities</code> first — it
           lists every available tool, the response modes, limits, error codes, and the citation
           contract.
         </v-alert>
@@ -202,14 +202,14 @@ const apiDocsUrl = `${API_URL.replace(/\/+$/, '')}/docs`;
 
 // Read-only tools exposed by the server (kept in sync with docs/mcp-server.md).
 const tools = [
-  'phentrieve_search_hpo_terms',
-  'phentrieve_extract_hpo_terms',
-  'phentrieve_extract_hpo_terms_llm',
-  'phentrieve_compare_hpo_terms',
-  'phentrieve_chunk_text',
-  'phentrieve_export_phenopacket',
-  'phentrieve_get_capabilities',
-  'phentrieve_diagnostics',
+  'search_hpo_terms',
+  'extract_hpo_terms',
+  'extract_hpo_terms_llm',
+  'compare_hpo_terms',
+  'chunk_text',
+  'export_phenopacket',
+  'get_capabilities',
+  'get_diagnostics',
 ];
 
 // Connection recipes per client, verified against current (2026) official docs.

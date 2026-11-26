@@ -13,8 +13,23 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+    from fastmcp import FastMCP
+    from fastmcp.server.http import StarletteWithLifespan
 
 logger = logging.getLogger("phentrieve.mcp")
+
+
+def build_mcp_asgi(mcp: FastMCP, path: str = "/mcp") -> StarletteWithLifespan:
+    """The Streamable HTTP app: stateless, JSON responses, foreign Origins rejected."""
+    from api.mcp.config import settings
+
+    return mcp.http_app(
+        path=path,
+        stateless_http=True,
+        json_response=True,
+        host_origin_protection="auto",
+        allowed_origins=settings.allowed_origins,
+    )
 
 
 def mount_phentrieve_mcp_facade(app: FastAPI, *, mount_path: str = "/mcp") -> None:
@@ -35,9 +50,14 @@ def mount_phentrieve_mcp_facade(app: FastAPI, *, mount_path: str = "/mcp") -> No
             logger.debug("MCP already mounted at '%s'; skipping", normalized)
             return
 
+    from starlette.routing import Route
+
     mcp = create_phentrieve_mcp()
-    mcp_asgi = mcp.http_app(path="/")
-    app.mount(normalized, mcp_asgi)
+    mcp_asgi = build_mcp_asgi(mcp, normalized)
+    # An exact route, not a Mount: a Mount answers /mcp with a 307 to /mcp/.
+    app.router.routes.append(
+        Route(normalized, endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"])
+    )
     # The host lifespan must enter this ASGI app's lifespan to start the
     # StreamableHTTP session manager.
     app.state.phentrieve_mcp_http_app = mcp_asgi

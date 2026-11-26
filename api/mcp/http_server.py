@@ -20,9 +20,10 @@ def main() -> None:
 
     from api.mcp.config import settings
     from api.mcp.facade import create_phentrieve_mcp, warmup
+    from api.mcp.server import build_mcp_asgi
 
     mcp = create_phentrieve_mcp()
-    app = mcp.http_app(path="/mcp")
+    app = build_mcp_asgi(mcp)
 
     # Best-effort warmup before serving so the first diagnostics/extract call is
     # warm rather than paying the embedding-model + index load cost (defect D9).

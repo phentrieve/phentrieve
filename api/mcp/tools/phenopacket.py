@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any
 
 import anyio
+from fastmcp.tools import ToolResult
 from pydantic import Field
 
 from api.mcp.annotations import READ_ONLY_OPEN_WORLD
@@ -22,6 +23,9 @@ _Phenotypes = Annotated[
     list[dict[str, Any]],
     Field(
         min_length=1,
+        examples=[
+            [{"hpo_id": "HP:0001250", "label": "Seizure", "assertion": "affirmed"}]
+        ],
         description="Annotations to serialize: a list of "
         "{hpo_id, label, assertion} objects (assertion: affirmed|negated). "
         "The raw extractor shape {id, name, assertion_status} is also accepted, "
@@ -43,27 +47,38 @@ def register_phenopacket_tools(mcp: FastMCP) -> None:
     """Register the export_phenopacket tool."""
 
     @mcp.tool(
-        name="phentrieve_export_phenopacket",
+        name="export_phenopacket",
         title="Export GA4GH Phenopacket",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=PHENOPACKET_SCHEMA,
         description=(
-            "Serialize an HPO annotation set into a GA4GH Phenopacket v2 JSON "
-            "bundle (optionally with an annotation sidecar). Research use only; "
+            "Returns a GA4GH Phenopacket v2 JSON bundle serialized from an HPO "
+            "annotation set (optionally with an annotation sidecar). Research use only; "
             "not for clinical record generation. Signature: "
-            "phentrieve_export_phenopacket(case_id, phenotypes, case_label=, "
+            "export_phenopacket(case_id, phenotypes, case_label=, "
             "input_text=, subject=, include_annotation_sidecar=, response_mode=)."
         ),
     )
     async def export_phenopacket(
-        case_id: Annotated[str, Field(min_length=1, description="Case identifier.")],
+        case_id: Annotated[
+            str,
+            Field(min_length=1, description="Case identifier.", examples=["case-001"]),
+        ],
         phenotypes: _Phenotypes,
-        case_label: str | None = None,
-        input_text: str | None = None,
+        case_label: Annotated[
+            str | None, Field(description="Optional human-readable case label.")
+        ] = None,
+        input_text: Annotated[
+            str | None,
+            Field(description="Optional source text the annotations came from."),
+        ] = None,
         subject: _Subject = None,
-        include_annotation_sidecar: bool = True,
+        include_annotation_sidecar: Annotated[
+            bool,
+            Field(description="Include the Phentrieve annotation sidecar object."),
+        ] = True,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -88,10 +103,8 @@ def register_phenopacket_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_export_phenopacket",
+            "export_phenopacket",
             call,
             response_mode=mode,
-            context=McpErrorContext(
-                "phentrieve_export_phenopacket", {"case_id": case_id}
-            ),
+            context=McpErrorContext("export_phenopacket", {"case_id": case_id}),
         )

@@ -138,7 +138,9 @@ def test_mcp_projects_other_person_findings():
 
 
 def test_mcp_schema_and_capabilities_document_the_new_fields():
-    assert "other_person_findings" in EXTRACT_SCHEMA["properties"]
+    assert (
+        "other_person_findings" in EXTRACT_SCHEMA["properties"]["result"]["properties"]
+    )
     serialized = json.dumps(build_capabilities(), default=str, sort_keys=True)
     assert "other_person_findings" in serialized
     assert "temporality" in serialized
@@ -170,7 +172,7 @@ def test_mcp_extract_tool_surfaces_other_person_findings(monkeypatch):
     mcp = create_phentrieve_mcp()
     result = asyncio.run(
         mcp.call_tool(
-            "phentrieve_extract_hpo_terms",
+            "extract_hpo_terms",
             {
                 "text": "x",
                 "research_use_acknowledged": True,
@@ -178,7 +180,8 @@ def test_mcp_extract_tool_surfaces_other_person_findings(monkeypatch):
             },
         )
     )
-    data = result.structured_content
+    sc = result.structured_content
+    data = {**sc.get("result", {}), **sc}
 
     term = data["other_person_findings"][0]
     assert term["hpo_id"] == "HP:0000821"

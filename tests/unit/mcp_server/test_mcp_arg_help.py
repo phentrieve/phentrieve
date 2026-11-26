@@ -54,5 +54,5 @@ def test_tool_signature_orders_required_first():
         "properties": {"text": {}, "response_mode": {}, "num_results": {}},
         "required": ["text"],
     }
-    sig = tool_signature("phentrieve_search_hpo_terms", schema)
-    assert sig == "phentrieve_search_hpo_terms(text, response_mode=, num_results=)"
+    sig = tool_signature("search_hpo_terms", schema)
+    assert sig == "search_hpo_terms(text, response_mode=, num_results=)"

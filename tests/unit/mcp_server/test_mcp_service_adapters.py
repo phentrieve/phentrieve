@@ -33,7 +33,7 @@ def test_chunk_text_service_unknown_strategy_raises_validation_failed():
         chunk_text_service(text="x", language="en", strategy="does-not-exist")
     # Unknown strategies are now rejected explicitly with the valid list (L4)
     # instead of silently falling back to the default config.
-    assert ei.value.error_code == "validation_failed"
+    assert ei.value.error_code == "invalid_input"
     assert "simple" in str(ei.value)
 
 
@@ -104,7 +104,7 @@ def test_chunk_text_model_load_failure_is_temporarily_unavailable(monkeypatch):
 
     with pytest.raises(McpToolError) as ei:
         chunk_text_service(text="x", language="en", strategy="sliding_window")
-    assert ei.value.error_code == "temporarily_unavailable"
+    assert ei.value.error_code == "upstream_unavailable"
 
 
 def test_diagnostics_reports_cold_then_loaded_subsystems(monkeypatch):
@@ -547,4 +547,4 @@ def test_extract_llm_store_failure_is_temporarily_unavailable(monkeypatch):
     monkeypatch.setattr(service_adapters, "reserve_llm_quota", broken)
     with pytest.raises(McpToolError) as excinfo:
         _call_llm_service(_llm_ok_service)
-    assert excinfo.value.error_code == "temporarily_unavailable"
+    assert excinfo.value.error_code == "upstream_unavailable"

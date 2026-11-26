@@ -7,14 +7,14 @@ import asyncio
 from api.mcp.facade import create_phentrieve_mcp
 
 EXPECTED_TOOLS = {
-    "phentrieve_search_hpo_terms",
-    "phentrieve_extract_hpo_terms",
-    "phentrieve_extract_hpo_terms_llm",
-    "phentrieve_compare_hpo_terms",
-    "phentrieve_export_phenopacket",
-    "phentrieve_chunk_text",
-    "phentrieve_get_capabilities",
-    "phentrieve_diagnostics",
+    "search_hpo_terms",
+    "extract_hpo_terms",
+    "extract_hpo_terms_llm",
+    "compare_hpo_terms",
+    "export_phenopacket",
+    "chunk_text",
+    "get_capabilities",
+    "get_diagnostics",
 }
 
 

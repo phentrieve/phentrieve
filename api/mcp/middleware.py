@@ -4,7 +4,7 @@ FastMCP validates call arguments with pydantic inside the tool's ``run()`` --
 before the registered tool body executes -- so a wrong argument name/type or a
 missing required argument raises a ``pydantic.ValidationError`` that never reaches
 ``run_mcp_tool``'s error boundary. This middleware catches it at ``on_call_tool``
-and returns the standard ``validation_failed`` envelope (valid names + a
+and returns the standard ``invalid_input`` envelope (valid names + a
 did-you-mean). It also normalizes curated argument aliases (e.g. ``query`` ->
 ``text``) before dispatch and discloses any rewrite under
 ``_meta.argument_aliases_applied``.
@@ -14,14 +14,13 @@ Patterned after ../hgnc-link/hgnc_link/mcp/middleware.py.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.tool import ToolResult
-from mcp.types import CallToolRequestParams, TextContent
+from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
 
 from api.mcp.arg_help import (
@@ -30,7 +29,7 @@ from api.mcp.arg_help import (
     normalize_alias_args,
     tool_signature,
 )
-from api.mcp.envelope import build_arg_error_envelope
+from api.mcp.envelope import build_arg_error_envelope, error_tool_result
 
 logger = logging.getLogger("phentrieve.mcp")
 
@@ -112,7 +111,4 @@ class ArgValidationMiddleware(Middleware):
             value_message=str(first.get("msg") or "") or None,
         )
         logger.warning("mcp_arg_error tool=%s loc=%s type=%s", name, loc, error_type)
-        return ToolResult(
-            structured_content=envelope,
-            content=[TextContent(type="text", text=json.dumps(envelope))],
-        )
+        return error_tool_result(envelope)

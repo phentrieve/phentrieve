@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import anyio
+from fastmcp.tools import ToolResult
 
 from api.mcp.annotations import READ_ONLY_OPEN_WORLD
 from api.mcp.envelope import McpErrorContext, run_mcp_tool
@@ -23,7 +24,7 @@ def register_similarity_tools(mcp: FastMCP) -> None:
     """Register the compare_hpo_terms tool."""
 
     @mcp.tool(
-        name="phentrieve_compare_hpo_terms",
+        name="compare_hpo_terms",
         title="Compare HPO Terms",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=COMPARE_SCHEMA,
@@ -35,7 +36,7 @@ def register_similarity_tools(mcp: FastMCP) -> None:
             "subsumer path length) so the score is explainable; minimal/compact "
             "return the lean score only. A missing id returns a not_found error "
             "envelope. Research use only; not for clinical use. Signature: "
-            "phentrieve_compare_hpo_terms(term1_id, term2_id, formula=, response_mode=)."
+            "compare_hpo_terms(term1_id, term2_id, formula=, response_mode=)."
         ),
     )
     async def compare_hpo_terms(
@@ -43,7 +44,7 @@ def register_similarity_tools(mcp: FastMCP) -> None:
         term2_id: HpoIdArg,
         formula: SimilarityFormulaArg = "hybrid",
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -64,11 +65,11 @@ def register_similarity_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_compare_hpo_terms",
+            "compare_hpo_terms",
             call,
             response_mode=mode,
             context=McpErrorContext(
-                "phentrieve_compare_hpo_terms",
+                "compare_hpo_terms",
                 {"term1_id": term1_id, "term2_id": term2_id},
             ),
         )
