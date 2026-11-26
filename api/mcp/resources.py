@@ -25,14 +25,14 @@ RESEARCH_USE_NOTICE = (
 
 SERVER_INSTRUCTIONS = (
     "Phentrieve maps clinical or biomedical research text to Human Phenotype "
-    "Ontology (HPO) terms. Canonical workflow: phentrieve_search_hpo_terms for a "
-    "short phenotype phrase, or phentrieve_extract_hpo_terms[_llm] for documents, "
-    "then phentrieve_export_phenopacket. Prefer phentrieve_extract_hpo_terms_llm "
+    "Ontology (HPO) terms. Canonical workflow: search_hpo_terms for a "
+    "short phenotype phrase, or extract_hpo_terms[_llm] for documents, "
+    "then export_phenopacket. Prefer extract_hpo_terms_llm "
     "for full abstracts, publication-style annotation, and syndrome/eponym-heavy "
     "text; use the standard tool for quick deterministic screening. Use "
     "response_mode (minimal | compact | standard | full) to control token cost; "
     "start compact and widen only if needed. If tools are deferred or load on "
-    "demand, start with phentrieve_get_capabilities. Call phentrieve_get_capabilities for "
+    "demand, start with get_capabilities. Call get_capabilities for "
     "the tool inventory, limits, response modes, error codes, and the citation "
     "contract; a warm client compares capabilities_version (echoed in every "
     "_meta) and skips re-fetching when unchanged. Citation contract: paste "
@@ -116,14 +116,14 @@ def get_capabilities_resource() -> dict[str, Any]:
         "transports": ["streamable_http"],
         "extraction_backends": ["standard", "llm"],
         "tools": [
-            "phentrieve_search_hpo_terms",
-            "phentrieve_extract_hpo_terms",
-            "phentrieve_extract_hpo_terms_llm",
-            "phentrieve_compare_hpo_terms",
-            "phentrieve_export_phenopacket",
-            "phentrieve_chunk_text",
-            "phentrieve_get_capabilities",
-            "phentrieve_diagnostics",
+            "search_hpo_terms",
+            "extract_hpo_terms",
+            "extract_hpo_terms_llm",
+            "compare_hpo_terms",
+            "export_phenopacket",
+            "chunk_text",
+            "get_capabilities",
+            "get_diagnostics",
         ],
         **get_llm_capability_defaults(),
     }

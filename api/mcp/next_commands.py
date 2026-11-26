@@ -25,17 +25,17 @@ def after_search(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if len(hits) >= 2:
         return [
             cmd(
-                "phentrieve_compare_hpo_terms",
+                "compare_hpo_terms",
                 term1_id=hits[0]["hpo_id"],
                 term2_id=hits[1]["hpo_id"],
             )
         ]
     if not hits:
-        return [cmd("phentrieve_get_capabilities", details=["languages", "models"])]
+        return [cmd("get_capabilities", details=["languages", "models"])]
     top = hits[0]
     return [
         cmd(
-            "phentrieve_export_phenopacket",
+            "export_phenopacket",
             case_id="<case-id>",
             phenotypes=[
                 {
@@ -80,10 +80,8 @@ def after_extract(
             entry["label"] = t.get("label") or t.get("name")
         phenotypes.append(entry)
     if not phenotypes:
-        return [cmd("phentrieve_get_capabilities", details=["models"])]
-    return [
-        cmd("phentrieve_export_phenopacket", case_id="<case-id>", phenotypes=phenotypes)
-    ]
+        return [cmd("get_capabilities", details=["models"])]
+    return [cmd("export_phenopacket", case_id="<case-id>", phenotypes=phenotypes)]
 
 
 def after_compare(
@@ -96,7 +94,7 @@ def after_compare(
     alternate = "simple_resnik_like" if formula == "hybrid" else "hybrid"
     return [
         cmd(
-            "phentrieve_compare_hpo_terms",
+            "compare_hpo_terms",
             term1_id=term1_id,
             term2_id=term2_id,
             formula=alternate,
@@ -105,10 +103,11 @@ def after_compare(
 
 
 def after_chunk(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """After chunk: search HPO terms for the first chunk's text."""
+    """After chunk: search HPO terms for a chunk (the client fills in its text)."""
     if not chunks:
-        return [cmd("phentrieve_get_capabilities")]
-    return [cmd("phentrieve_search_hpo_terms", text=chunks[0].get("text", ""))]
+        return [cmd("get_capabilities")]
+    # Never echo the chunk text: it is caller input (GTS-CORE-TXT-04).
+    return [cmd("search_hpo_terms", text="<chunks[0].text>")]
 
 
 def default_error_next_commands(
@@ -120,8 +119,8 @@ def default_error_next_commands(
     than the generic capabilities/diagnostics steps.
     """
     if error_code in ("not_found", "ambiguous_query"):
-        return [cmd("phentrieve_search_hpo_terms")]
+        return [cmd("search_hpo_terms")]
     return [
-        cmd("phentrieve_get_capabilities"),
-        cmd("phentrieve_diagnostics"),
+        cmd("get_capabilities"),
+        cmd("get_diagnostics"),
     ]

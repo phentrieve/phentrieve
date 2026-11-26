@@ -52,18 +52,18 @@ claude mcp add --transport http phentrieve http://127.0.0.1:8734/mcp
 
 ## Available MCP Tools
 
-Tools are namespaced with an underscore prefix (`phentrieve_*`).
+Tool names carry no server prefix; a gateway adds its own namespace (for example `phentrieve_search_hpo_terms`).
 
 | Tool | Use When |
 |------|----------|
-| `phentrieve_search_hpo_terms` | Candidate HPO terms for a short phrase |
-| `phentrieve_extract_hpo_terms` | Deterministic retrieval-backed HPO term suggestions for research text |
-| `phentrieve_extract_hpo_terms_llm` | LLM-assisted full-text research annotation and grounded HPO mapping suggestions |
-| `phentrieve_compare_hpo_terms` | Similarity between two HPO IDs |
-| `phentrieve_export_phenopacket` | Serialize an annotation set to a GA4GH Phenopacket v2 bundle |
-| `phentrieve_chunk_text` | Chunk text without retrieval (client-driven loops) |
-| `phentrieve_get_capabilities` | Discover tools, response modes, limits, error codes, and the citation contract |
-| `phentrieve_diagnostics` | Subsystem health and recent (sanitized) errors |
+| `search_hpo_terms` | Candidate HPO terms for a short phrase |
+| `extract_hpo_terms` | Deterministic retrieval-backed HPO term suggestions for research text |
+| `extract_hpo_terms_llm` | LLM-assisted full-text research annotation and grounded HPO mapping suggestions |
+| `compare_hpo_terms` | Similarity between two HPO IDs |
+| `export_phenopacket` | Serialize an annotation set to a GA4GH Phenopacket v2 bundle |
+| `chunk_text` | Chunk text without retrieval (client-driven loops) |
+| `get_capabilities` | Discover tools, response modes, limits, error codes, and the citation contract |
+| `get_diagnostics` | Subsystem health and recent (sanitized) errors |
 
 All tools are read-only from the perspective of user data and are annotated
 `readOnlyHint=true`. Tool descriptions carry the research-only limitation and
@@ -73,21 +73,29 @@ public demo data warning.
 
 Every tool returns a structured JSON envelope:
 
-- **Success:** `{"success": true, <domain keys>, "_meta": {...}}`
+- **Success:** `{"success": true, "results": [...], "_meta": {...}}` for a list
+  (search), else `{"success": true, "result": {<domain keys>}, "_meta": {...}}`
 - **Error:** `{"success": false, "error_code", "message", "retryable", "recovery_action", "_meta": {...}}`
 
+This is the [GeneFoundry response envelope v1.2](https://github.com/berntpopp/genefoundry-envelope).
 `_meta` always carries `tool`, `request_id`, `elapsed_ms`,
 `capabilities_version`, `unsafe_for_clinical_use: true`, and `next_commands`
-(ready-to-call `{tool, arguments}` workflow hints). Error codes are stable
-strings (`invalid_input`, `validation_failed`, `not_found`, `ambiguous_query`,
-`llm_quota_exhausted`, `llm_unavailable`, `upstream_unavailable`,
-`temporarily_unavailable`, `internal_error`).
+(ready-to-call `{tool, arguments}` workflow hints); a success also carries the
+HPO provenance `source`, `data_version` (the HPO release) and `retrieved_at`.
+An error sets the MCP `isError` flag. Error codes are the closed set
+`invalid_input`, `not_found`, `ambiguous_query`, `rate_limited` (LLM quota),
+`upstream_unavailable` and `internal`.
+
+The standalone server (`phentrieve mcp serve`) is stateless, answers
+`application/json`, rejects foreign browser `Origin`s with 403 (allow more with
+`PHENTRIEVE_MCP_ALLOWED_ORIGINS='["https://example.org"]'`), and serves
+`GET /health` (`status`, `version`, `transport`).
 
 Pass `response_mode` (`minimal | compact | standard | full`, default `compact`)
 on any tool to control token cost. Over-budget list results are truncated and
 report `_meta.truncated`. Common argument synonyms (e.g. `query`/`phrase` →
 `text`, `limit` → `num_results`) are accepted and disclosed via
-`_meta.argument_aliases_applied`. Call `phentrieve_get_capabilities` once, then
+`_meta.argument_aliases_applied`. Call `get_capabilities` once, then
 compare the returned `capabilities_version` to the value echoed in `_meta` to
 skip re-fetching when unchanged.
 

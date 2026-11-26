@@ -128,7 +128,7 @@ def test_project_extract_payload_projects_family_list():
 
 
 def test_extract_schema_exposes_family_history_findings():
-    props = EXTRACT_SCHEMA["properties"]
+    props = EXTRACT_SCHEMA["properties"]["result"]["properties"]
     assert "family_history_findings" in props
     # No regression: the proband list stays.
     assert "aggregated_hpo_terms" in props
@@ -160,8 +160,8 @@ def _call_extract(monkeypatch, service_payload: dict, args: dict) -> dict:
     from api.mcp.facade import create_phentrieve_mcp
 
     mcp = create_phentrieve_mcp()
-    result = asyncio.run(mcp.call_tool("phentrieve_extract_hpo_terms", args))
-    return result.structured_content
+    sc = asyncio.run(mcp.call_tool("extract_hpo_terms", args)).structured_content
+    return {**sc.get("result", {}), **sc}  # payload keys from the `result` frame
 
 
 def test_extract_tool_surfaces_family_findings(monkeypatch):
@@ -270,9 +270,10 @@ def test_patient_terms_survive_large_secondary_lists(monkeypatch, tool, mode):
         from api.mcp.facade import create_phentrieve_mcp
 
         mcp = create_phentrieve_mcp()
-        data = asyncio.run(
-            mcp.call_tool("phentrieve_extract_hpo_terms_llm", args)
+        sc = asyncio.run(
+            mcp.call_tool("extract_hpo_terms_llm", args)
         ).structured_content
+        data = {**sc.get("result", {}), **sc}
     else:
         data = _call_extract(monkeypatch, payload, args)
 

@@ -16,7 +16,9 @@ pytestmark = pytest.mark.unit
 
 def test_chunkstrategy_literal_matches_source_of_truth():
     """Drift guard: the MCP enum members equal config_resolver's known set."""
-    literal = ChunkStrategy.__args__[0]  # unwrap Annotated -> Literal
+    literal = typing.get_args(ChunkStrategy.__args__[0])[
+        0
+    ]  # Annotated -> Literal | None
     members = set(typing.get_args(literal))
     assert members == set(KNOWN_CHUNK_STRATEGIES)
 
@@ -24,7 +26,7 @@ def test_chunkstrategy_literal_matches_source_of_truth():
 def test_unknown_strategy_rejected_with_allowed_values():
     with pytest.raises(McpToolError) as ei:
         chunk_text_service(text="x", language="en", strategy="bogus-strategy")
-    assert ei.value.error_code == "validation_failed"
+    assert ei.value.error_code == "invalid_input"
     assert "simple" in str(ei.value)
     assert ei.value.details.get("allowed_values")
 

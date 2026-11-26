@@ -18,6 +18,38 @@ together:
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **MCP server conforms to GTS Core (gts-conformance v0.3.0) and the
+  [GeneFoundry response envelope v1.2](https://github.com/berntpopp/genefoundry-envelope).**
+  Retrieval, extraction and their default index are unchanged.
+  - Tool names drop the `phentrieve_` prefix; a gateway adds its own namespace:
+
+    | Old | New |
+    |-----|-----|
+    | `phentrieve_search_hpo_terms` | `search_hpo_terms` |
+    | `phentrieve_extract_hpo_terms` | `extract_hpo_terms` |
+    | `phentrieve_extract_hpo_terms_llm` | `extract_hpo_terms_llm` |
+    | `phentrieve_chunk_text` | `chunk_text` |
+    | `phentrieve_compare_hpo_terms` | `compare_hpo_terms` |
+    | `phentrieve_export_phenopacket` | `export_phenopacket` |
+    | `phentrieve_get_capabilities` | `get_capabilities` |
+    | `phentrieve_diagnostics` | `get_diagnostics` |
+
+  - A success that is not a list (`results`) now carries its payload under `result`,
+    and `_meta` adds the HPO provenance `source`, `data_version` and `retrieved_at`.
+  - Errors set the MCP `isError` flag, and `error_code` is the closed set
+    `invalid_input`, `not_found`, `ambiguous_query`, `rate_limited`,
+    `upstream_unavailable`, `internal` (`validation_failed` -> `invalid_input`,
+    `llm_quota_exhausted` -> `rate_limited`, `llm_unavailable` and
+    `temporarily_unavailable` -> `upstream_unavailable`, `internal_error` -> `internal`).
+  - `/mcp` is stateless and answers `application/json`, rejects foreign browser
+    `Origin`s with 403 (`PHENTRIEVE_MCP_ALLOWED_ORIGINS` allows more), and is served
+    directly on the API mount (no 307 to `/mcp/`). The standalone server adds
+    `GET /health` (`status`, `version`, `transport`).
+  - Every tool parameter is described; required and array parameters carry examples.
+  - `chunk_text` no longer echoes the caller's text in `_meta.next_commands`.
+
 ## [0.34.0] — 2026-11-26 (CLI 0.34.0 / API 0.24.0 / Frontend 0.24.0)
 
 `PROMPT_BEHAVIOR_VERSION` stays at `10` with default settings: both new features below

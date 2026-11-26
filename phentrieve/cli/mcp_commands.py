@@ -89,35 +89,35 @@ def mcp_info() -> None:
     table.add_column("Description")
 
     tool_info = {
-        "phentrieve_search_hpo_terms": (
+        "search_hpo_terms": (
             "/mcp",
             "Map a short research phenotype phrase to HPO candidates",
         ),
-        "phentrieve_extract_hpo_terms": (
+        "extract_hpo_terms": (
             "/mcp",
             "Quick deterministic research screening without LLM calls",
         ),
-        "phentrieve_extract_hpo_terms_llm": (
+        "extract_hpo_terms_llm": (
             "/mcp",
             "LLM-assisted full-text research annotation",
         ),
-        "phentrieve_compare_hpo_terms": (
+        "compare_hpo_terms": (
             "/mcp",
             "Compare two HPO IDs for research similarity analysis",
         ),
-        "phentrieve_export_phenopacket": (
+        "export_phenopacket": (
             "/mcp",
             "Serialize annotations to a GA4GH Phenopacket v2 bundle",
         ),
-        "phentrieve_chunk_text": (
+        "chunk_text": (
             "/mcp",
             "Chunk text without retrieval, for client-driven loops",
         ),
-        "phentrieve_get_capabilities": (
+        "get_capabilities": (
             "/mcp",
             "Report tools, response modes, limits, and the citation contract",
         ),
-        "phentrieve_diagnostics": (
+        "get_diagnostics": (
             "/mcp",
             "Subsystem health and recent errors",
         ),

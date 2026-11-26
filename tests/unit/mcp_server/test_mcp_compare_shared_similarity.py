@@ -83,4 +83,4 @@ def test_unknown_term_is_not_found(data_dir):
 def test_missing_ontology_data_is_temporarily_unavailable(data_dir):
     with pytest.raises(McpToolError) as exc_info:
         compare_hpo_terms_service(term1_id=T1, term2_id=T2, formula="hybrid")
-    assert exc_info.value.error_code == "temporarily_unavailable"
+    assert exc_info.value.error_code == "upstream_unavailable"

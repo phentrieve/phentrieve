@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import anyio
+from fastmcp.tools import ToolResult
+from pydantic import Field
 
 from api.mcp.annotations import READ_ONLY_OPEN_WORLD
 from api.mcp.confidence import annotate_search_confidence
@@ -66,7 +68,7 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
     """Register search, extract, extract_llm, and chunk tools."""
 
     @mcp.tool(
-        name="phentrieve_search_hpo_terms",
+        name="search_hpo_terms",
         title="Search HPO Terms",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=SEARCH_SCHEMA,
@@ -78,7 +80,7 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
             "below 0.7, so a nearest-neighbour match for out-of-domain text is not "
             "mistaken for a real one. Research use only; not for diagnosis, "
             "treatment, triage, patient management, or clinical decision support. "
-            "Signature: phentrieve_search_hpo_terms(text, language=, num_results=, "
+            "Signature: search_hpo_terms(text, language=, num_results=, "
             "similarity_threshold=, include_details=, response_mode=)."
         ),
     )
@@ -89,7 +91,7 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
         similarity_threshold: SimilarityThreshold = MIN_SIMILARITY_THRESHOLD,
         include_details: IncludeDetails = False,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -118,23 +120,22 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_search_hpo_terms",
+            "search_hpo_terms",
             call,
             response_mode=mode,
-            context=McpErrorContext("phentrieve_search_hpo_terms", {"text": text}),
+            context=McpErrorContext("search_hpo_terms", {"text": text}),
         )
 
     @mcp.tool(
-        name="phentrieve_extract_hpo_terms",
+        name="extract_hpo_terms",
         title="Extract HPO Terms",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=EXTRACT_SCHEMA,
         description=(
-            "Deterministic retrieval-backed extraction of HPO terms from "
-            "multi-sentence text (chunking + assertion detection + aggregation), "
-            "no LLM calls. For full abstracts or syndrome/eponym-heavy text prefer "
-            "phentrieve_extract_hpo_terms_llm. Research use only; not for clinical "
-            "use. Signature: phentrieve_extract_hpo_terms(text, language=, "
+            "Returns HPO terms extracted from multi-sentence text by deterministic "
+            "retrieval (chunking + assertion detection + aggregation), no LLM calls. For full abstracts or syndrome/eponym-heavy text prefer "
+            "extract_hpo_terms_llm. Research use only; not for clinical "
+            "use. Signature: extract_hpo_terms(text, language=, "
             "include_details=, include_chunk_positions=, num_results_per_chunk=, "
             "chunk_retrieval_threshold=, research_use_acknowledged=, response_mode=)."
         ),
@@ -149,7 +150,7 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
         chunk_retrieval_threshold: ChunkRetrievalThreshold = DEFAULT_CHUNK_RETRIEVAL_THRESHOLD,
         research_use_acknowledged: ResearchAck = False,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -201,25 +202,26 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_extract_hpo_terms",
+            "extract_hpo_terms",
             call,
             response_mode=mode,
-            context=McpErrorContext("phentrieve_extract_hpo_terms", {"text": text}),
+            context=McpErrorContext("extract_hpo_terms", {"text": text}),
         )
 
     @mcp.tool(
-        name="phentrieve_extract_hpo_terms_llm",
+        name="extract_hpo_terms_llm",
         title="Extract HPO Terms With LLM",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=EXTRACT_SCHEMA,
         description=(
-            "LLM-assisted two-phase extraction for full abstracts, publication-"
-            "style annotation, syndrome/eponym-heavy text, and review workflows. "
+            "Returns HPO terms extracted by LLM-assisted two-phase extraction, for "
+            "full abstracts, publication-style annotation, syndrome/eponym-heavy "
+            "text, and review workflows. "
             "Uses only the server-configured LLM target; clients cannot override "
             "provider/model/base URL. Subject to a daily quota in hosted mode; set "
             "allow_standard_fallback=true to fall back to deterministic extraction. "
             "Research use only; not for clinical use. Signature: "
-            "phentrieve_extract_hpo_terms_llm(text, language=, llm_internal_mode=, "
+            "extract_hpo_terms_llm(text, language=, llm_internal_mode=, "
             "allow_standard_fallback=, include_details=, include_chunk_positions=, "
             "num_results_per_chunk=, chunk_retrieval_threshold=, "
             "research_use_acknowledged=, response_mode=)."
@@ -228,10 +230,20 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
     async def extract_hpo_terms_llm(
         text: TextArg,
         language: LanguageArg = None,
-        llm_internal_mode: Literal[
-            "whole_document_grounded", "whole_document_legacy"
+        llm_internal_mode: Annotated[
+            Literal["whole_document_grounded", "whole_document_legacy"],
+            Field(
+                description="Inner LLM extraction mode: whole_document_grounded "
+                "(default, grounded in the source text) or whole_document_legacy."
+            ),
         ] = "whole_document_grounded",
-        allow_standard_fallback: bool = False,
+        allow_standard_fallback: Annotated[
+            bool,
+            Field(
+                description="Fall back to deterministic extraction when the LLM "
+                "quota is exhausted instead of returning an error."
+            ),
+        ] = False,
         include_details: IncludeDetails = False,
         include_chunk_positions: IncludeChunkPositions = True,
         include_unmatched_chunks: IncludeUnmatchedChunks = False,
@@ -239,7 +251,7 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
         chunk_retrieval_threshold: ChunkRetrievalThreshold = DEFAULT_CHUNK_RETRIEVAL_THRESHOLD,
         research_use_acknowledged: ResearchAck = False,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -304,30 +316,30 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_extract_hpo_terms_llm",
+            "extract_hpo_terms_llm",
             call,
             response_mode=mode,
-            context=McpErrorContext("phentrieve_extract_hpo_terms_llm", {"text": text}),
+            context=McpErrorContext("extract_hpo_terms_llm", {"text": text}),
         )
 
     @mcp.tool(
-        name="phentrieve_chunk_text",
+        name="chunk_text",
         title="Chunk Text",
         annotations=READ_ONLY_OPEN_WORLD,
         output_schema=CHUNK_SCHEMA,
         description=(
-            "Split text into chunks without HPO retrieval, for clients driving "
-            "their own loop. Defaults to the 'simple' (paragraph + sentence) "
+            "Returns the text split into chunks, without HPO retrieval, for clients "
+            "driving their own loop. Defaults to the 'simple' (paragraph + sentence) "
             "strategy. Research use only. Signature: "
-            "phentrieve_chunk_text(text, language=, strategy=, response_mode=)."
+            "chunk_text(text, language=, strategy=, response_mode=)."
         ),
     )
     async def chunk_text(
         text: TextArg,
         language: LanguageArg = None,
-        strategy: ChunkStrategy | None = None,
+        strategy: ChunkStrategy = None,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         mode = resolve_mode(response_mode)
 
         async def call() -> dict[str, Any]:
@@ -347,8 +359,8 @@ def register_retrieval_tools(mcp: FastMCP) -> None:
             return shaped
 
         return await run_mcp_tool(
-            "phentrieve_chunk_text",
+            "chunk_text",
             call,
             response_mode=mode,
-            context=McpErrorContext("phentrieve_chunk_text", {"text": text}),
+            context=McpErrorContext("chunk_text", {"text": text}),
         )

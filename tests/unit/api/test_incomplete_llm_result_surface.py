@@ -101,7 +101,7 @@ def _call_llm_tool(monkeypatch, unrecovered: int, response_mode: str) -> dict:
     mcp = create_phentrieve_mcp()
     result = asyncio.run(
         mcp.call_tool(
-            "phentrieve_extract_hpo_terms_llm",
+            "extract_hpo_terms_llm",
             {
                 "text": "x",
                 "research_use_acknowledged": True,
@@ -109,7 +109,8 @@ def _call_llm_tool(monkeypatch, unrecovered: int, response_mode: str) -> dict:
             },
         )
     )
-    return result.structured_content
+    sc = result.structured_content
+    return {**sc.get("result", {}), **sc}  # payload keys from the `result` frame
 
 
 @pytest.mark.parametrize("response_mode", ["minimal", "compact", "full"])

@@ -66,7 +66,7 @@ def _mcp_quota_subject_key() -> str:
     subject_key = anonymous_subject_key(request)
     if subject_key is None:
         raise McpToolError(
-            "temporarily_unavailable",
+            "upstream_unavailable",
             "Unable to resolve a trusted anonymous subject for LLM quota "
             "enforcement. Verify proxy forwarding headers and "
             "PHENTRIEVE_TRUSTED_PROXY_CIDRS.",
@@ -216,7 +216,7 @@ def extract_hpo_terms_llm_service(
                 daily_limit=api_config.PHENTRIEVE_LLM_DAILY_LIMIT,
             )
         except QuotaStoreUnavailableError as exc:
-            raise McpToolError("temporarily_unavailable", str(exc)) from exc
+            raise McpToolError("upstream_unavailable", str(exc)) from exc
         except QuotaExceededError as exc:
             if not allow_standard_fallback:
                 raise
@@ -316,7 +316,7 @@ def compare_hpo_terms_service(
         )
     except HPODataUnavailableError as exc:
         raise McpToolError(
-            "temporarily_unavailable",
+            "upstream_unavailable",
             "HPO ontology data is currently unavailable; run "
             "`phentrieve data prepare` or retry later.",
             details={"term1_id": t1, "term2_id": t2},
@@ -348,13 +348,13 @@ def _coerce_export_phenotype(request_cls: Any, p: dict[str, Any], idx: int) -> A
     canonical {hpo_id, label, assertion} shape and the extractor's
     {id, name, assertion_status} shape, and carrying score -> confidence.
 
-    Raises a typed validation_failed error (not a raw KeyError) when the id is
+    Raises a typed invalid_input error (not a raw KeyError) when the id is
     missing, with a did-you-mean mapping hint (defects M2, H3, M3).
     """
     hpo_id = p.get("hpo_id") or p.get("id")
     if not hpo_id:
         raise McpToolError(
-            "validation_failed",
+            "invalid_input",
             f"phenotypes[{idx}] missing 'hpo_id' (got keys: {sorted(p)}); map "
             "id->hpo_id, name->label, assertion_status->assertion. Hand the "
             "aggregated_hpo_terms from an extract call directly.",
@@ -481,7 +481,7 @@ def chunk_text_service(
     # accepted on a model-loaded server -- defect L4).
     if strategy is not None and strategy.lower() not in KNOWN_CHUNK_STRATEGIES:
         raise McpToolError(
-            "validation_failed",
+            "invalid_input",
             f"Unknown chunking strategy '{strategy}'. Valid strategies: "
             f"{', '.join(KNOWN_CHUNK_STRATEGIES)}.",
             details={
@@ -517,7 +517,7 @@ def chunk_text_service(
             # A genuine load failure is a transient server condition, not a bad
             # argument: surface it as retryable rather than blaming the strategy.
             raise McpToolError(
-                "temporarily_unavailable",
+                "upstream_unavailable",
                 "The embedding model required for this chunking strategy could "
                 "not be loaded; retry shortly or use the 'simple' strategy.",
                 details={"field": "strategy"},
@@ -533,7 +533,7 @@ def chunk_text_service(
         processed = pipeline.process(text, include_positions=True)
     except Exception as exc:  # genuine processing failure, not a bad argument
         raise McpToolError(
-            "internal_error",
+            "internal",
             "Failed to process text with the requested chunking strategy.",
             details={"field": "strategy"},
         ) from exc
@@ -610,9 +610,9 @@ def diagnostics_service() -> McpResult:
         "subsystems": subsystems,
         "recent_errors": get_recent_errors()[-10:],
         "minimum_workflow": [
-            "phentrieve_search_hpo_terms",
-            "phentrieve_extract_hpo_terms",
-            "phentrieve_export_phenopacket",
+            "search_hpo_terms",
+            "extract_hpo_terms",
+            "export_phenopacket",
         ],
         "capabilities_version": capabilities_version(),
     }

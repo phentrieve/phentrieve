@@ -30,7 +30,11 @@ def test_envelope_schema_is_permissive_with_common_keys():
 
 def test_domain_schemas_expose_domain_keys():
     assert "results" in SEARCH_SCHEMA["properties"]
-    assert "aggregated_hpo_terms" in EXTRACT_SCHEMA["properties"]
-    assert "similarity_score" in COMPARE_SCHEMA["properties"]
-    assert "phenopacket_json" in PHENOPACKET_SCHEMA["properties"]
-    assert "capabilities_version" in CAPABILITIES_SCHEMA["properties"]
+    record = "result"  # a non-list payload is framed under `result` (envelope v1.2)
+    assert "aggregated_hpo_terms" in EXTRACT_SCHEMA["properties"][record]["properties"]
+    assert "similarity_score" in COMPARE_SCHEMA["properties"][record]["properties"]
+    assert "phenopacket_json" in PHENOPACKET_SCHEMA["properties"][record]["properties"]
+    assert (
+        "capabilities_version"
+        in CAPABILITIES_SCHEMA["properties"][record]["properties"]
+    )

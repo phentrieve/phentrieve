@@ -71,9 +71,26 @@ def create_phentrieve_mcp() -> FastMCP:
     register_discovery_tools(mcp)
     register_resources(mcp)
     _register_prompts(mcp)
+    _register_health(mcp)
     mcp.add_middleware(ArgValidationMiddleware())
 
     return mcp
+
+
+def _register_health(mcp: FastMCP) -> None:
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    @mcp.custom_route("/health", methods=["GET"])
+    async def health(_request: Request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "status": "ok",
+                "service": "phentrieve",
+                "version": get_api_version(),
+                "transport": "streamable-http-stateless",
+            }
+        )
 
 
 def _register_prompts(mcp: FastMCP) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any
 
 import anyio
+from fastmcp.tools import ToolResult
 from pydantic import Field
 
 from api.mcp.annotations import READ_ONLY_CLOSED_WORLD
@@ -21,6 +22,7 @@ _Details = Annotated[
     Field(
         description="Optional capability sections to expand, e.g. "
         "['sample_calls', 'argument_aliases'].",
+        examples=[["sample_calls"]],
     ),
 ]
 
@@ -29,7 +31,7 @@ def register_discovery_tools(mcp: FastMCP) -> None:
     """Register the get_capabilities and diagnostics tools."""
 
     @mcp.tool(
-        name="phentrieve_get_capabilities",
+        name="get_capabilities",
         title="Get Phentrieve Capabilities",
         annotations=READ_ONLY_CLOSED_WORLD,
         output_schema=CAPABILITIES_SCHEMA,
@@ -38,36 +40,36 @@ def register_discovery_tools(mcp: FastMCP) -> None:
             "error codes, citation contract, and a stable capabilities_version "
             "(compare it to _meta.capabilities_version to skip re-fetching). Pass "
             "details=['sample_calls'] to expand. Signature: "
-            "phentrieve_get_capabilities(details=)."
+            "get_capabilities(details=)."
         ),
     )
-    async def get_capabilities(details: _Details = None) -> dict[str, Any]:
+    async def get_capabilities(details: _Details = None) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             return build_capabilities(details=details)
 
         return await run_mcp_tool(
-            "phentrieve_get_capabilities",
+            "get_capabilities",
             call,
-            context=McpErrorContext("phentrieve_get_capabilities"),
+            context=McpErrorContext("get_capabilities"),
         )
 
     @mcp.tool(
-        name="phentrieve_diagnostics",
+        name="get_diagnostics",
         title="Phentrieve Diagnostics",
         annotations=READ_ONLY_CLOSED_WORLD,
         output_schema=DIAGNOSTICS_SCHEMA,
         description=(
             "Report subsystem health (ontology data, embedding model, LLM backend, "
             "vector index) and recent sanitized errors for troubleshooting. "
-            "Signature: phentrieve_diagnostics()."
+            "Signature: get_diagnostics()."
         ),
     )
-    async def diagnostics() -> dict[str, Any]:
+    async def diagnostics() -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             return await anyio.to_thread.run_sync(diagnostics_service)
 
         return await run_mcp_tool(
-            "phentrieve_diagnostics",
+            "get_diagnostics",
             call,
-            context=McpErrorContext("phentrieve_diagnostics"),
+            context=McpErrorContext("get_diagnostics"),
         )

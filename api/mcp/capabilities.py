@@ -26,45 +26,45 @@ for _alias, _canonical in sorted(ARG_ALIASES.items()):
     _ALIAS_DOC.setdefault(_canonical, []).append(_alias)
 
 _TOOLS: dict[str, dict[str, Any]] = {
-    "phentrieve_search_hpo_terms": {
+    "search_hpo_terms": {
         "summary": "Map a short phenotype phrase to ranked HPO candidates.",
-        "next_tools": ["phentrieve_compare_hpo_terms", "phentrieve_extract_hpo_terms"],
+        "next_tools": ["compare_hpo_terms", "extract_hpo_terms"],
         "do_not_use_for": "Multi-paragraph documents -- use an extract tool.",
     },
-    "phentrieve_extract_hpo_terms": {
+    "extract_hpo_terms": {
         "summary": "Deterministic RAG extraction of HPO terms from documents.",
         "next_tools": [
-            "phentrieve_export_phenopacket",
-            "phentrieve_extract_hpo_terms_llm",
+            "export_phenopacket",
+            "extract_hpo_terms_llm",
         ],
         "do_not_use_for": "Single short phrases -- use search.",
     },
-    "phentrieve_extract_hpo_terms_llm": {
+    "extract_hpo_terms_llm": {
         "summary": "LLM-assisted two-phase extraction for abstracts / review text.",
-        "next_tools": ["phentrieve_export_phenopacket"],
+        "next_tools": ["export_phenopacket"],
         "do_not_use_for": "Bulk screening where deterministic output suffices.",
     },
-    "phentrieve_compare_hpo_terms": {
+    "compare_hpo_terms": {
         "summary": "Ontology semantic similarity between two HPO ids.",
-        "next_tools": ["phentrieve_search_hpo_terms"],
+        "next_tools": ["search_hpo_terms"],
         "do_not_use_for": "Free-text comparison -- resolve ids first.",
     },
-    "phentrieve_export_phenopacket": {
+    "export_phenopacket": {
         "summary": "Serialize an annotation set to GA4GH Phenopacket v2 JSON.",
         "next_tools": [],
         "do_not_use_for": "Clinical record generation.",
     },
-    "phentrieve_chunk_text": {
+    "chunk_text": {
         "summary": "Chunk text without retrieval, for client-driven loops.",
-        "next_tools": ["phentrieve_search_hpo_terms", "phentrieve_extract_hpo_terms"],
+        "next_tools": ["search_hpo_terms", "extract_hpo_terms"],
         "do_not_use_for": "When you also want HPO matches -- use extract.",
     },
-    "phentrieve_get_capabilities": {
+    "get_capabilities": {
         "summary": "Server capabilities, limits, modes, error codes, citation contract.",
         "next_tools": [],
         "do_not_use_for": "",
     },
-    "phentrieve_diagnostics": {
+    "get_diagnostics": {
         "summary": "Subsystem health and recent (sanitized) errors.",
         "next_tools": [],
         "do_not_use_for": "",
@@ -85,15 +85,15 @@ def _details_section(name: str) -> dict[str, Any]:
     if name == "sample_calls":
         return {
             "sample_calls": {
-                "phentrieve_search_hpo_terms": {
+                "search_hpo_terms": {
                     "text": "progressive muscle weakness",
                     "response_mode": "compact",
                 },
-                "phentrieve_extract_hpo_terms": {
+                "extract_hpo_terms": {
                     "text": "The patient presented with seizures and ataxia.",
                     "response_mode": "compact",
                 },
-                "phentrieve_compare_hpo_terms": {
+                "compare_hpo_terms": {
                     "term1_id": "HP:0001250",
                     "term2_id": "HP:0002133",
                 },
@@ -112,8 +112,8 @@ def _descriptor_body(details: tuple[str, ...]) -> dict[str, Any]:
         "endpoint": "/mcp",
         "research_use_only": True,
         "canonical_workflow": [
-            "phentrieve_search_hpo_terms -> phentrieve_compare_hpo_terms",
-            "phentrieve_extract_hpo_terms[_llm] -> phentrieve_export_phenopacket",
+            "search_hpo_terms -> compare_hpo_terms",
+            "extract_hpo_terms[_llm] -> export_phenopacket",
         ],
         "tools": _TOOLS,
         "tool_count": len(_TOOLS),
@@ -178,7 +178,7 @@ def _descriptor_body(details: tuple[str, ...]) -> dict[str, Any]:
             "rejects an alias before it is sent, while a non-validating client (some "
             "agent runtimes) forwards it and the server then rewrites it. Because "
             "you cannot rely on your client's strictness, use canonical names. An "
-            "unknown canonical argument returns validation_failed with a did-you-mean."
+            "unknown canonical argument returns invalid_input with a did-you-mean."
         ),
         "safety": {
             "research_use_only": True,

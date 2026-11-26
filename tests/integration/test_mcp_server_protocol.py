@@ -40,22 +40,23 @@ def test_protocol_roundtrip_surface_and_envelope(tmp_path, monkeypatch):
             tools = await client.list_tools()
             names = {t.name for t in tools}
             assert len(names) == 8
-            assert "phentrieve_get_capabilities" in names
+            assert "get_capabilities" in names
             for t in tools:
                 assert t.annotations is not None
                 assert t.annotations.readOnlyHint is True
 
-            cap = _structured(await client.call_tool("phentrieve_get_capabilities", {}))
+            cap = _structured(await client.call_tool("get_capabilities", {}))
             assert cap["success"] is True
-            assert cap["capabilities_version"].startswith("sha256:")
+            assert cap["result"]["capabilities_version"].startswith("sha256:")
             assert cap["_meta"]["unsafe_for_clinical_use"] is True
 
-            err = _structured(
-                await client.call_tool(
-                    "phentrieve_compare_hpo_terms",
-                    {"term1_id": "HP:0000001", "term2_id": "HP:9999999"},
-                )
+            res = await client.call_tool(
+                "compare_hpo_terms",
+                {"term1_id": "HP:0000001", "term2_id": "HP:9999999"},
+                raise_on_error=False,
             )
+            assert res.is_error is True
+            err = _structured(res)
             assert err["success"] is False
             assert err["error_code"] == "not_found"
 

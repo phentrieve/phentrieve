@@ -52,20 +52,20 @@ def test_value_error_envelope_uses_message_not_param_names():
     """B3: build_arg_error_envelope must emit the value-level message for a
     value error on a *valid* argument, without allowed_values=param-names."""
     env = build_arg_error_envelope(
-        tool_name="phentrieve_search_hpo_terms",
+        tool_name="search_hpo_terms",
         loc="text",
         error_type="value_error",
         valid_params=["text", "language", "num_results"],
-        signature="phentrieve_search_hpo_terms(text, language=, num_results=)",
+        signature="search_hpo_terms(text, language=, num_results=)",
         suggestion=None,
         constraints=None,
         value_message="text must not be empty or whitespace-only.",
     )
-    assert env["error_code"] == "validation_failed"
+    assert env["error_code"] == "invalid_input"
     assert env["field"] == "text"
     assert "empty" in env["message"].lower()
     # The signature hint is preserved...
-    assert env["hint"] == "phentrieve_search_hpo_terms(text, language=, num_results=)"
+    assert env["hint"] == "search_hpo_terms(text, language=, num_results=)"
     # ...but allowed_values must NOT enumerate the parameter names.
     allowed = env.get("allowed_values", [])
     assert "language" not in allowed
@@ -85,10 +85,10 @@ def test_blank_text_error_result_is_value_level(blank):
         _ToolArgs(text=blank)
     schema = _ToolArgs.model_json_schema()
     result = ArgValidationMiddleware()._error_result(
-        "phentrieve_search_hpo_terms", ["text", "language"], schema, ei.value
+        "search_hpo_terms", ["text", "language"], schema, ei.value
     )
     env = result.structured_content
-    assert env["error_code"] == "validation_failed"
+    assert env["error_code"] == "invalid_input"
     assert env["field"] == "text"
     # Not the name-error template.
     assert "argument names are listed" not in env["message"].lower()
@@ -99,7 +99,7 @@ def test_blank_text_error_result_is_value_level(blank):
 
 def _call_tool_raising(exc: Exception):
     """Drive on_call_tool with a call_next that raises *exc* (schema pre-cached)."""
-    name = "phentrieve_search_hpo_terms"
+    name = "search_hpo_terms"
     middleware = ArgValidationMiddleware()
     middleware._schema_cache[name] = _ToolArgs.model_json_schema()
     context = SimpleNamespace(message=SimpleNamespace(name=name, arguments={}))
@@ -118,7 +118,7 @@ def test_fastmcp_validation_error_with_pydantic_cause_becomes_envelope():
     wrapped.__cause__ = ei.value
 
     env = _call_tool_raising(wrapped).structured_content
-    assert env["error_code"] == "validation_failed"
+    assert env["error_code"] == "invalid_input"
     assert env["field"] == "text"
 
 

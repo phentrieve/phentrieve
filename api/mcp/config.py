@@ -53,6 +53,13 @@ class MCPSettings(BaseSettings):
         description="Port to bind for standalone HTTP transport",
     )
 
+    # Browser Origins accepted on /mcp; any other Origin is rejected with 403
+    # (DNS-rebinding protection). Requests without an Origin header are unaffected.
+    allowed_origins: list[str] = Field(
+        default=[],
+        description="Browser Origin values accepted on /mcp (JSON list)",
+    )
+
     # Same-domain mounting: enable via ENABLE_MCP_HTTP=true
     # When enabled, /mcp endpoint is mounted on the main API at startup
     enable_http: bool = Field(

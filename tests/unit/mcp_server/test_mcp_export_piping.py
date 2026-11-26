@@ -77,7 +77,7 @@ def test_export_missing_id_raises_validation_failed():
             phenotypes=[{"name": "Seizure", "assertion_status": "affirmed"}],
             include_annotation_sidecar=False,
         )
-    assert ei.value.error_code == "validation_failed"
+    assert ei.value.error_code == "invalid_input"
     msg = str(ei.value)
     assert "hpo_id" in msg
     assert "id" in msg  # names the keys actually received / the mapping hint

@@ -14,50 +14,45 @@ added by tool bodies at standard/full verbosity.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
 from pydantic import ValidationError as PydanticValidationError
 
 from api.llm_quota import QuotaExceededError
 
 logger = logging.getLogger("phentrieve.mcp")
 
+# The closed error_code enum of the GeneFoundry response envelope v1.2. Anything
+# else is a violation, so codes entering the envelope are clamped to this set.
 ERROR_CODES: set[str] = {
     "invalid_input",
-    "validation_failed",
     "not_found",
     "ambiguous_query",
-    "llm_quota_exhausted",
-    "llm_unavailable",
     "upstream_unavailable",
-    "temporarily_unavailable",
-    "internal_error",
+    "rate_limited",
+    "internal",
 }
 
-_RETRYABLE = {
-    "llm_quota_exhausted",
-    "llm_unavailable",
-    "upstream_unavailable",
-    "temporarily_unavailable",
-}
+_RETRYABLE = {"rate_limited", "upstream_unavailable"}
 _RECOVERY = {
     "invalid_input": "reformulate_input",
-    "validation_failed": "reformulate_input",
     # D4: a bogus-but-well-formed id should be resolved (via search), not
     # reformulated -- a compare/export call carries no free text to reformulate.
     "not_found": "resolve_identifier",
     "ambiguous_query": "resolve_identifier",
-    "llm_quota_exhausted": "retry_backoff",
-    "llm_unavailable": "switch_tool",
+    "rate_limited": "retry_backoff",
     "upstream_unavailable": "retry_backoff",
-    "temporarily_unavailable": "retry_backoff",
-    "internal_error": "retry_backoff",
+    "internal": "retry_backoff",
 }
 
 _RECENT_ERRORS: deque[dict[str, Any]] = deque(maxlen=50)
@@ -79,7 +74,7 @@ class McpToolError(Exception):
         self, error_code: str, message: str, *, details: dict[str, Any] | None = None
     ) -> None:
         if error_code not in ERROR_CODES:
-            error_code = "internal_error"
+            error_code = "internal"
         super().__init__(message)
         self.error_code = error_code
         self.message = message
@@ -99,12 +94,10 @@ def error_code_for_exception(exc: BaseException) -> str:
     if isinstance(exc, McpToolError):
         return exc.error_code
     if isinstance(exc, QuotaExceededError):
-        return "llm_quota_exhausted"
-    if isinstance(exc, PydanticValidationError):
-        return "validation_failed"
-    if isinstance(exc, (ValueError, KeyError)):
+        return "rate_limited"
+    if isinstance(exc, (PydanticValidationError, ValueError, KeyError)):
         return "invalid_input"
-    return "internal_error"
+    return "internal"
 
 
 def _safe_message(exc: BaseException) -> str:
@@ -120,7 +113,7 @@ def _classify(exc: BaseException) -> tuple[str, str, dict[str, Any]]:
         first = exc.errors()[0]
         loc = ".".join(str(p) for p in first.get("loc", ())) or "input"
         return code, f"Invalid input -- `{loc}`: {first['msg']}", {"field": loc}
-    if code == "internal_error":
+    if code == "internal":
         return code, _SAFE_INTERNAL_MESSAGE, {}
     return code, _safe_message(exc), {}
 
@@ -134,6 +127,51 @@ def record_error(tool: str, error_code: str, raw_message: str) -> None:
 
 def get_recent_errors() -> list[dict[str, Any]]:
     return list(_RECENT_ERRORS)
+
+
+_PROVENANCE: dict[str, str] = {}
+
+
+def provenance() -> dict[str, str]:
+    """Envelope v1.2 provenance of the loaded HPO data: source, data_version, retrieved_at.
+
+    Read once from the HPO database metadata (the release and its download time) and
+    cached; empty while no HPO database is present (only discovery tools work then).
+    """
+    if _PROVENANCE:
+        return _PROVENANCE
+    try:
+        from phentrieve.config import DEFAULT_HPO_DB_FILENAME
+        from phentrieve.data_processing.hpo_database import HPODatabase
+        from phentrieve.utils import get_default_data_dir
+
+        db_file = get_default_data_dir() / DEFAULT_HPO_DB_FILENAME
+        if not db_file.exists():
+            return {}
+        with HPODatabase(db_file) as db:
+            version = db.get_metadata("hpo_version")
+            fetched = db.get_metadata("hpo_download_date")
+        if not version or not fetched:
+            return {}
+        retrieved = datetime.fromisoformat(fetched).astimezone(UTC)
+    except Exception:  # noqa: BLE001 - provenance must never fail a tool call
+        logger.debug("Could not read HPO provenance", exc_info=True)
+        return {}
+    _PROVENANCE.update(
+        source="hpo",
+        data_version=version,
+        retrieved_at=retrieved.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    return _PROVENANCE
+
+
+def error_tool_result(envelope: dict[str, Any]) -> ToolResult:
+    """Wrap an error envelope so the MCP ``isError`` flag is set, with a JSON mirror."""
+    return ToolResult(
+        structured_content=envelope,
+        content=[TextContent(type="text", text=json.dumps(envelope))],
+        is_error=True,
+    )
 
 
 def _request_id() -> str:
@@ -163,8 +201,12 @@ async def run_mcp_tool(
     *,
     response_mode: str | None = None,
     context: McpErrorContext | None = None,
-) -> dict[str, Any]:
-    """Execute a tool body, returning the result dict or a structured error dict."""
+) -> dict[str, Any] | ToolResult:
+    """Execute a tool body, returning the success envelope or an ``isError`` result.
+
+    A payload without a ``result``/``results`` key is framed under ``result``
+    (envelope v1.2); ``_meta`` gains the HPO provenance.
+    """
     request_id = _request_id()
     start = time.perf_counter()
     logger.info("mcp_tool_started", extra={"tool": tool_name, "request_id": request_id})
@@ -172,12 +214,19 @@ async def run_mcp_tool(
         result = await call()
         elapsed = (time.perf_counter() - start) * 1000.0
         if not isinstance(result, dict):
-            raise McpToolError("internal_error", "Tool returned a non-dict result.")
+            raise McpToolError("internal", "Tool returned a non-dict result.")
         body_meta: dict[str, Any] = result.pop("_meta", None) or {}
-        result.setdefault("success", True)
-        result["_meta"] = {
-            **_base_meta(tool_name, request_id, elapsed, response_mode),
-            **body_meta,
+        success = result.pop("success", True)
+        if not {"result", "results"} & result.keys():
+            result = {"result": result}
+        result = {
+            "success": success,
+            **result,
+            "_meta": {
+                **_base_meta(tool_name, request_id, elapsed, response_mode),
+                **provenance(),
+                **body_meta,
+            },
         }
         logger.info(
             "mcp_tool_completed",
@@ -212,7 +261,7 @@ async def run_mcp_tool(
         }
         if extra:
             envelope.update(extra)
-        return envelope
+        return error_tool_result(envelope)
 
 
 def _clean_value_message(msg: str | None) -> str | None:
@@ -243,16 +292,17 @@ def build_arg_error_envelope(
     base_meta = {
         "tool": tool_name,
         "request_id": _request_id(),
+        "elapsed_ms": 0,  # rejected before dispatch
         "unsafe_for_clinical_use": True,
         "capabilities_version": capabilities_version(),
-        "next_commands": [{"tool": "phentrieve_get_capabilities", "arguments": {}}],
+        "next_commands": [{"tool": "get_capabilities", "arguments": {}}],
     }
     if constraints is not None:
         allowed, human = constraints
         message = f"Invalid value for argument `{loc}` of {tool_name}: {human}."
         return {
             "success": False,
-            "error_code": "validation_failed",
+            "error_code": "invalid_input",
             "message": message[:280],
             "retryable": False,
             "recovery_action": "reformulate_input",
@@ -271,7 +321,7 @@ def build_arg_error_envelope(
         message = f"{message}: {reason}" if reason else f"{message}."
         return {
             "success": False,
-            "error_code": "validation_failed",
+            "error_code": "invalid_input",
             "message": message[:280],
             "retryable": False,
             "recovery_action": "reformulate_input",
@@ -289,7 +339,7 @@ def build_arg_error_envelope(
     message = f"{head}{dym} Valid argument names are listed in allowed_values."
     return {
         "success": False,
-        "error_code": "validation_failed",
+        "error_code": "invalid_input",
         "message": message[:280],
         "retryable": False,
         "recovery_action": "reformulate_input",

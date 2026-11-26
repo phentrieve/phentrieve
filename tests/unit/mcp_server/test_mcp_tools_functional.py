@@ -40,7 +40,8 @@ requires_compare_ontology = pytest.mark.skipif(
 def _call(tool: str, args: dict) -> dict:
     mcp = create_phentrieve_mcp()
     result = asyncio.run(mcp.call_tool(tool, args))
-    return result.structured_content
+    sc = result.structured_content
+    return {**sc.get("result", {}), **sc}  # payload keys from the `result` frame
 
 
 def _meta_invariants(data: dict) -> None:
@@ -52,7 +53,7 @@ def _meta_invariants(data: dict) -> None:
 
 
 def test_get_capabilities_success_envelope():
-    data = _call("phentrieve_get_capabilities", {})
+    data = _call("get_capabilities", {})
     assert data["success"] is True
     assert data["server"] == "phentrieve"
     assert data["capabilities_version"].startswith("sha256:")
@@ -60,7 +61,7 @@ def test_get_capabilities_success_envelope():
 
 
 def test_diagnostics_reports_subsystems():
-    data = _call("phentrieve_diagnostics", {})
+    data = _call("get_diagnostics", {})
     assert data["success"] is True
     assert "ontology_data" in data["subsystems"]
     assert "recent_errors" in data
@@ -69,7 +70,7 @@ def test_diagnostics_reports_subsystems():
 
 def test_chunk_text_returns_chunks_and_next_commands():
     data = _call(
-        "phentrieve_chunk_text",
+        "chunk_text",
         {"text": "First finding. Second finding. Third finding.", "strategy": "simple"},
     )
     assert data["success"] is True
@@ -80,15 +81,15 @@ def test_chunk_text_returns_chunks_and_next_commands():
 
 
 def test_arg_validation_middleware_unknown_arg():
-    data = _call("phentrieve_get_capabilities", {"nope": 1})
+    data = _call("get_capabilities", {"nope": 1})
     assert data["success"] is False
-    assert data["error_code"] == "validation_failed"
+    assert data["error_code"] == "invalid_input"
     assert data["field"] == "nope"
 
 
 def test_arg_alias_normalization_disclosed():
     # 'sections' is an alias for 'details' on get_capabilities
-    data = _call("phentrieve_get_capabilities", {"sections": ["sample_calls"]})
+    data = _call("get_capabilities", {"sections": ["sample_calls"]})
     assert data["success"] is True
     assert "sample_calls" in data
     assert data["_meta"]["argument_aliases_applied"] == [["sections", "details"]]
@@ -97,7 +98,7 @@ def test_arg_alias_normalization_disclosed():
 @requires_compare_ontology
 def test_compare_real_similarity():
     data = _call(
-        "phentrieve_compare_hpo_terms",
+        "compare_hpo_terms",
         {"term1_id": "HP:0001250", "term2_id": "HP:0002133"},
     )
     assert data["success"] is True
@@ -113,7 +114,7 @@ def test_compare_not_found_envelope(tmp_path, monkeypatch):
     write_tiny_hpo_db(tmp_path / "data")
     try:
         data = _call(
-            "phentrieve_compare_hpo_terms",
+            "compare_hpo_terms",
             {"term1_id": "HP:0000001", "term2_id": "HP:9999999"},
         )
     finally:
@@ -124,27 +125,27 @@ def test_compare_not_found_envelope(tmp_path, monkeypatch):
     # D4: resolve the bogus id via search, not reformulate (no free text here).
     assert data["recovery_action"] == "resolve_identifier"
     next_tools = {c["tool"] for c in data["_meta"]["next_commands"]}
-    assert "phentrieve_search_hpo_terms" in next_tools
+    assert "search_hpo_terms" in next_tools
 
 
 def test_compare_missing_ontology_is_temporarily_unavailable(tmp_path, monkeypatch):
     use_hpo_data_dir(monkeypatch, tmp_path / "data")
     try:
         data = _call(
-            "phentrieve_compare_hpo_terms",
+            "compare_hpo_terms",
             {"term1_id": "HP:0001250", "term2_id": "HP:0002133"},
         )
     finally:
         load_hpo_graph_data.cache_clear()
     assert data["success"] is False
-    assert data["error_code"] == "temporarily_unavailable"
+    assert data["error_code"] == "upstream_unavailable"
     assert data["retryable"] is True
 
 
 @requires_compare_ontology
 def test_compare_standard_mode_includes_citation():
     data = _call(
-        "phentrieve_compare_hpo_terms",
+        "compare_hpo_terms",
         {
             "term1_id": "HP:0001250",
             "term2_id": "HP:0002133",
@@ -160,7 +161,7 @@ def test_export_at_minimal_returns_whole_packet_without_json_blob():
     phenopacket object (the tool's sole product) and only drop the redundant
     phenopacket_json string -- not an empty packet."""
     data = _call(
-        "phentrieve_export_phenopacket",
+        "export_phenopacket",
         {
             "case_id": "CASE-9",
             "phenotypes": [
@@ -178,16 +179,16 @@ def test_export_at_minimal_returns_whole_packet_without_json_blob():
 
 def test_invalid_response_mode_is_rejected():
     # Literal type -> middleware validation_failed before the body runs.
-    data = _call("phentrieve_chunk_text", {"text": "x", "response_mode": "verbose"})
+    data = _call("chunk_text", {"text": "x", "response_mode": "verbose"})
     assert data["success"] is False
-    assert data["error_code"] == "validation_failed"
+    assert data["error_code"] == "invalid_input"
     assert data["field"] == "response_mode"
 
 
 def test_bad_hpo_id_pattern_rejected():
     data = _call(
-        "phentrieve_compare_hpo_terms",
+        "compare_hpo_terms",
         {"term1_id": "not-an-id", "term2_id": "HP:0001250"},
     )
     assert data["success"] is False
-    assert data["error_code"] == "validation_failed"
+    assert data["error_code"] == "invalid_input"

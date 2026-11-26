@@ -22,7 +22,19 @@ _OBJ = {"type": "object", "additionalProperties": True}
 
 
 def envelope_schema(**properties: Any) -> dict[str, Any]:
-    """A permissive object schema carrying the common envelope keys + extras."""
+    """A permissive envelope v1.2 schema: the common keys plus the payload.
+
+    A list payload (``results``) sits at the top level; any other payload is the
+    single record under ``result``, as :func:`api.mcp.envelope.run_mcp_tool` frames it.
+    """
+    if "results" not in properties:
+        properties = {
+            "result": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": properties,
+            }
+        }
     props: dict[str, Any] = {
         "success": _BOOL,
         "_meta": _META,

@@ -13,7 +13,7 @@ embedding retrieval, optional LLM-assisted extraction, ontology similarity).
 - **Verbosity:** pass `response_mode` (`minimal | compact | standard | full`,
   default `compact`) to control token cost. Over-budget list results are
   truncated and report `_meta.truncated`.
-- **Discovery:** call `phentrieve_get_capabilities` for tools, limits, response
+- **Discovery:** call `get_capabilities` for tools, limits, response
   modes, error codes, and the citation contract. Compare the returned
   `capabilities_version` to the value echoed in `_meta`; skip re-fetching when
   unchanged.
