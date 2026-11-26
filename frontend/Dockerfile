@@ -49,6 +49,12 @@ RUN npm run build && \
 # ============================================================================
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runtime
 
+# nginx.org package source for the nginx security upgrade below (Alpine 3.24, stable)
+ARG NGINX_APK_REPOSITORY=https://nginx.org/packages/alpine/v3.24/main
+ARG NGINX_SIGNING_KEY_URL=https://nginx.org/keys/nginx_signing.rsa.pub
+ARG NGINX_SIGNING_KEY_SHA256=ff7cf138acc09f2a5029300ab713fe6a1440605fca72e2bab76a4da9206fec87
+ARG NGINX_MIN_PATCHED=1.30.7
+
 # Metadata labels (OCI standard)
 LABEL org.opencontainers.image.title="Phentrieve Frontend" \
       org.opencontainers.image.description="Vue.js frontend for Phentrieve HPO term mapping" \
@@ -70,6 +76,15 @@ USER root
 RUN rm -f /etc/nginx/conf.d/*.conf.default && \
     # Apply security updates to base image packages (addresses openssl CVEs)
     apk update && apk upgrade --no-cache && \
+    # nginx comes from the nginx.org repo, which `apk upgrade` does not track, so the
+    # base image's nginx stayed at 1.30.6 (CVE-2026-113425, -118899, -121810, -123007,
+    # -123633; fixed in 1.30.7). Upgrade it from nginx.org with its pinned signing key.
+    # The unprivileged nginx.conf is kept; apk writes the stock one as .apk-new.
+    wget -qO /etc/apk/keys/nginx_signing.rsa.pub "${NGINX_SIGNING_KEY_URL}" && \
+    echo "${NGINX_SIGNING_KEY_SHA256}  /etc/apk/keys/nginx_signing.rsa.pub" | sha256sum -c - && \
+    apk add --no-cache -X "${NGINX_APK_REPOSITORY}" "nginx>=${NGINX_MIN_PATCHED}" && \
+    rm -f /etc/nginx/*.apk-new /etc/nginx/conf.d/*.apk-new && \
+    nginx -v && \
     # Verify files were copied
     ls -la /usr/share/nginx/html/
 USER nginx
