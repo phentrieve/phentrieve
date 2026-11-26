@@ -297,7 +297,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     # and keep shipping it across rebuilds. Naming the packages here guarantees the
     # latest published Debian security patch lands (3.5.7-1~deb13u3: CVE-2026-75804,
     # CVE-2026-84782 and friends; pcre2 10.46-1~deb13u3: CVE-2026-103111; apt 3.0.4:
-    # CVE-2026-109518; zlib1g 1.3.1-1+deb13u1: CVE-2026-76844, CVE-2026-85091),
+    # CVE-2026-109518; zlib1g 1.3.1-1+deb13u1: CVE-2026-76844, CVE-2026-85091;
+    # libzstd1 1.5.7+dfsg-1+deb13u1: CVE-2026-124851),
     # and editing this line busts the layer cache.
     apt-get install -y --no-install-recommends --only-upgrade \
         openssl \
@@ -307,6 +308,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         apt \
         libapt-pkg7.0 \
         zlib1g \
+        libzstd1 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libgomp1 \
