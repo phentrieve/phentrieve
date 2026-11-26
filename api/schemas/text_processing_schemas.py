@@ -1,6 +1,6 @@
 from typing import Any, Literal, cast
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from phentrieve.config import (
     DEFAULT_ASSERTION_CONFIG,
@@ -15,6 +15,7 @@ from phentrieve.config import (
     DEFAULT_STEP_SIZE_TOKENS,
     DEFAULT_WINDOW_SIZE_TOKENS,
 )
+from phentrieve.modifier_models import CURIE_PATTERN, ModifierSource
 from phentrieve.retrieval.adaptive_rechunker import AdaptiveRechunkingProfileBlock
 
 # ~70 kB took ~14 s on CPU; 50k chars keeps one request well under the 180 s timeout.
@@ -44,6 +45,10 @@ class TextProcessingRequest(BaseModel):
             "When true, LLM quota exhaustion or an LLM backend error falls back "
             "to the standard backend instead of returning an error."
         ),
+    )
+    extract_modifiers: bool = Field(
+        default=False,
+        description="Extract clinical modifiers for findings (LLM backend only; opt-in).",
     )
     language: str | None = Field(
         default=DEFAULT_LANGUAGE,
@@ -174,6 +179,51 @@ class TextAttributionSpanAPI(BaseModel):
     matched_text_in_chunk: str
 
 
+class ModifierSegmentAPI(BaseModel):
+    start: int = Field(
+        ge=0, description="0-based start codepoint offset in source text."
+    )
+    end: int = Field(gt=0, description="Exclusive end codepoint offset in source text.")
+    text: str = Field(
+        min_length=1, description="Exact source text quoted by this segment."
+    )
+
+    @model_validator(mode="after")
+    def _validate_bounds(self) -> "ModifierSegmentAPI":
+        if self.end <= self.start:
+            raise ValueError("segment end must be greater than start")
+        if len(self.text) != self.end - self.start:
+            raise ValueError("segment text length must equal end - start")
+        return self
+
+
+class ModifierAPI(BaseModel):
+    term_id: str = Field(
+        pattern=CURIE_PATTERN,
+        description="Ontology CURIE for the clinical modifier (e.g., HP:0012828).",
+    )
+    label: str = Field(
+        min_length=1, description="Canonical label of the modifier term."
+    )
+    segments: list[ModifierSegmentAPI] = Field(
+        default_factory=list,
+        description="Document spans quoting the modifier outside the finding span.",
+    )
+    source: ModifierSource | None = Field(
+        default=None,
+        description="Origin of the modifier attachment ('llm' or 'rule').",
+    )
+
+
+class OntologyWarningAPI(BaseModel):
+    code: str = Field(min_length=1, description="Machine-readable warning code.")
+    message: str = Field(min_length=1, description="Human-readable warning message.")
+    term_id: str | None = Field(
+        default=None,
+        description="Optional ontology term ID associated with this warning.",
+    )
+
+
 class ProcessedChunkAPI(BaseModel):
     chunk_id: int
     text: str
@@ -272,6 +322,14 @@ class AggregatedHPOTermAPI(BaseModel):
     synonyms: list[str] | None = Field(
         None,
         description="List of synonyms for the HPO term (when include_details=True).",
+    )
+    modifiers: list[ModifierAPI] = Field(
+        default_factory=list,
+        description="Clinical modifiers attached to this finding.",
+    )
+    warnings: list[OntologyWarningAPI] = Field(
+        default_factory=list,
+        description="Non-fatal ontology/profile warnings for this finding.",
     )
     # Keeping these for backward compatibility
     score: float | None = None  # Max bi-encoder score from evidence

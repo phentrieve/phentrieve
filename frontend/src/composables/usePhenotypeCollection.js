@@ -33,6 +33,84 @@ const isUncertain = (a) =>
   );
 
 /**
+ * Normalize and deduplicate clinical modifiers attached to a phenotype.
+ * Preserves the API contract shape ({ term_id, label, segments?, source? }).
+ */
+export function normalizeModifiers(modifiers) {
+  if (!Array.isArray(modifiers) || modifiers.length === 0) {
+    return [];
+  }
+
+  const seenIds = new Set();
+  const normalized = [];
+
+  modifiers.forEach((modifier) => {
+    if (!modifier || typeof modifier !== 'object') return;
+    const termId = typeof modifier.term_id === 'string' ? modifier.term_id.trim() : '';
+    const label = typeof modifier.label === 'string' ? modifier.label.trim() : '';
+    if (!termId || !label || seenIds.has(termId)) return;
+
+    seenIds.add(termId);
+    const entry = { term_id: termId, label };
+    if (Array.isArray(modifier.segments) && modifier.segments.length > 0) {
+      const validSegments = modifier.segments
+        .filter(
+          (seg) =>
+            seg &&
+            typeof seg === 'object' &&
+            Number.isInteger(seg.start) &&
+            Number.isInteger(seg.end) &&
+            seg.start >= 0 &&
+            seg.end > seg.start &&
+            typeof seg.text === 'string' &&
+            seg.text.trim().length > 0
+        )
+        .map((seg) => ({
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+        }));
+      if (validSegments.length > 0) {
+        entry.segments = validSegments;
+      }
+    }
+    if (modifier.source !== undefined && modifier.source !== null) {
+      entry.source = modifier.source;
+    }
+    normalized.push(entry);
+  });
+
+  return normalized;
+}
+
+function normalizeExportAssertionStatus(status) {
+  if (isExcluded(status)) return 'negated';
+  if (isUncertain(status)) return 'uncertain';
+  return 'affirmed';
+}
+
+/**
+ * Serialize collected phenotypes for POST /api/v1/phenopackets/export.
+ * Includes `modifiers` on each phenotype item only when non-empty.
+ */
+export function buildPhenopacketExportPayload({ caseId = null, phenotypes = [] } = {}) {
+  const serializedPhenotypes = (Array.isArray(phenotypes) ? phenotypes : []).map((cp) => {
+    const modifiers = normalizeModifiers(cp.modifiers);
+    return {
+      hpo_id: cp.hpo_id,
+      label: cp.label,
+      assertion_status: normalizeExportAssertionStatus(cp.assertion_status),
+      ...(modifiers.length > 0 ? { modifiers } : {}),
+    };
+  });
+
+  return {
+    ...(caseId ? { case_id: caseId } : {}),
+    phenotypes: serializedPhenotypes,
+  };
+}
+
+/**
  * Composable for managing phenotype collection state and actions.
  * Extracted from QueryInterface.vue to reduce component size.
  */
@@ -46,19 +124,42 @@ export function usePhenotypeCollection() {
   const phenopacketDateOfBirth = ref(null);
 
   function addPhenotype(phenotype, queryAssertionStatus = null) {
+    const modifiers = normalizeModifiers(phenotype?.modifiers);
+    const normalizedPhenotype =
+      modifiers.length > 0 ? { ...phenotype, modifiers } : { ...phenotype };
+    if (modifiers.length === 0 && 'modifiers' in normalizedPhenotype) {
+      delete normalizedPhenotype.modifiers;
+    }
+
     logService.info('Adding phenotype to collection', {
-      phenotype,
+      phenotype: normalizedPhenotype,
       queryAssertionStatus,
-      phenotypeHasAssertionStatus: phenotype.assertion_status ? true : false,
-      phenotypeAssertionStatus: phenotype.assertion_status,
+      phenotypeHasAssertionStatus: normalizedPhenotype.assertion_status ? true : false,
+      phenotypeAssertionStatus: normalizedPhenotype.assertion_status,
     });
 
-    const added = conversationStore.addPhenotype(phenotype, queryAssertionStatus);
+    const added = conversationStore.addPhenotype(normalizedPhenotype, queryAssertionStatus);
     if (added) {
       logService.debug('Phenotype added to collection via store', {
         hpo_id: phenotype.hpo_id,
       });
     } else {
+      // If the phenotype is already collected with the same polarity and the
+      // new hit carries modifiers, merge any unseen modifiers onto the entry.
+      if (modifiers.length > 0) {
+        const existing = conversationStore.collectedPhenotypes.find(
+          (item) => item.hpo_id === phenotype.hpo_id
+        );
+        const incomingStatus = normalizedPhenotype.assertion_status || queryAssertionStatus;
+        const polarityMatches =
+          !incomingStatus || isExcluded(existing?.assertion_status) === isExcluded(incomingStatus);
+        if (existing && polarityMatches) {
+          const merged = normalizeModifiers([...(existing.modifiers || []), ...modifiers]);
+          if (merged.length > 0) {
+            existing.modifiers = merged;
+          }
+        }
+      }
       logService.debug('Phenotype was duplicate, not added', {
         hpo_id: phenotype.hpo_id,
       });
@@ -173,10 +274,18 @@ export function usePhenotypeCollection() {
       }
       phenotypes.forEach((cp) => {
         if (isUncertain(cp.assertion_status)) return;
-        phenopacket.phenotypicFeatures.push({
+        const feature = {
           type: { id: cp.hpo_id, label: cp.label },
           excluded: isExcluded(cp.assertion_status),
-        });
+        };
+        const modifiers = normalizeModifiers(cp.modifiers);
+        if (modifiers.length > 0) {
+          feature.modifiers = modifiers.map((modifier) => ({
+            id: modifier.term_id,
+            label: modifier.label,
+          }));
+        }
+        phenopacket.phenotypicFeatures.push(feature);
       });
       const filename = `phentrieve_phenopacket_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
       downloadJson(phenopacket, filename);
@@ -200,5 +309,10 @@ export function usePhenotypeCollection() {
     toggleCollectionPanel,
     exportCollectionAsText,
     exportAsPhenopacket,
+    buildPhenopacketExportPayload: (caseId = null) =>
+      buildPhenopacketExportPayload({
+        caseId: caseId || phenopacketSubjectId.value?.trim() || null,
+        phenotypes: conversationStore.collectedPhenotypes,
+      }),
   };
 }

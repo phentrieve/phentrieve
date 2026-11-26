@@ -307,6 +307,12 @@ export function seedAnnotationsFromResponse({ note, response }) {
       spans,
       origin: 'auto',
       confidence,
+      ...(Array.isArray(term.modifiers) && term.modifiers.length > 0
+        ? { modifiers: term.modifiers }
+        : {}),
+      ...(Array.isArray(term.warnings) && term.warnings.length > 0
+        ? { warnings: term.warnings }
+        : {}),
     };
   });
 
@@ -388,7 +394,11 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
     });
   });
 
-  if (ranges.length === 0) return [{ key: 'plain-note', text, highlighted: false }];
+  const modifierRanges = collectModifierRanges(text, annotations, ranges);
+
+  if (ranges.length === 0 && modifierRanges.length === 0) {
+    return [{ key: 'plain-note', text, highlighted: false }];
+  }
 
   ranges.sort((left, right) => left.start - right.start);
 
@@ -407,15 +417,36 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
     }
   }
 
+  const runs = [
+    ...merged.map((range) => ({ ...range, kind: 'finding' })),
+    ...modifierRanges.map((range) => ({ ...range, kind: 'modifier' })),
+  ].sort((left, right) => left.start - right.start);
+
   const segments = [];
   let cursor = 0;
-  merged.forEach((range, index) => {
+  runs.forEach((range, index) => {
     if (range.start > cursor) {
       segments.push({
         key: `plain-${index}-${cursor}`,
         text: text.slice(cursor, range.start),
         highlighted: false,
       });
+    }
+    if (range.kind === 'modifier') {
+      // Modifier evidence is shown, not edited: it is not a highlighted
+      // annotation, so it opens no popover and adds no finding.
+      segments.push({
+        key: `modifier-${index}-${range.start}`,
+        text: text.slice(range.start, range.end),
+        highlighted: false,
+        modifier: true,
+        termIds: range.termIds,
+        modifierIds: range.modifierIds,
+        tooltip: range.labels.join(', '),
+        findingTooltip: range.termIds.map((id) => `${labelById.get(id) || id} (${id})`).join(', '),
+      });
+      cursor = range.end;
+      return;
     }
     segments.push({
       key: `mark-${index}-${range.start}`,
@@ -438,6 +469,88 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
 }
 
 /**
+ * Build a codepoint-index -> UTF-16 code-unit index table when the text
+ * contains non-BMP characters (surrogate pairs). Returns null for BMP-only
+ * text so the fast path does zero allocations.
+ */
+function buildCodepointToUtf16Map(text) {
+  let hasSurrogate = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdfff) {
+      hasSurrogate = true;
+      break;
+    }
+  }
+  if (!hasSurrogate) return null;
+
+  const map = [];
+  let utf16 = 0;
+  for (const ch of text) {
+    map.push(utf16);
+    utf16 += ch.length;
+  }
+  map.push(utf16);
+  return map;
+}
+
+/**
+ * Collect the note ranges quoted by modifier segments ({ start, end, text }).
+ * Backend offsets are 0-based Unicode codepoint indices; convert to UTF-16
+ * indices when non-BMP characters are present. A range is dropped when its
+ * quoted text no longer matches the note (redacted or edited text) or when it
+ * overlaps a finding span, which wins: chunk-fallback finding spans can cover
+ * a whole sentence including the modifier words.
+ * Overlapping modifier ranges are merged and keep every linked finding.
+ */
+function collectModifierRanges(text, annotations, findingRanges) {
+  const ranges = [];
+  const cpToUtf16 = buildCodepointToUtf16Map(text);
+  const maxCodepoints = cpToUtf16 ? cpToUtf16.length - 1 : text.length;
+
+  (Array.isArray(annotations) ? annotations : []).forEach((ann) => {
+    if (!ann || typeof ann.hpoId !== 'string' || !Array.isArray(ann.modifiers)) return;
+    ann.modifiers.forEach((modifier) => {
+      if (!modifier || typeof modifier.term_id !== 'string') return;
+      const label = `${modifier.label || modifier.term_id} (${modifier.term_id})`;
+      (Array.isArray(modifier.segments) ? modifier.segments : []).forEach((segment) => {
+        const rawStart = segment?.start;
+        const rawEnd = segment?.end;
+        if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd)) return;
+        if (rawStart < 0 || rawEnd <= rawStart || rawEnd > maxCodepoints) return;
+        const start = cpToUtf16 ? cpToUtf16.at(rawStart) : rawStart;
+        const end = cpToUtf16 ? cpToUtf16.at(rawEnd) : rawEnd;
+        if (typeof segment.text !== 'string' || segment.text.length === 0) return;
+        if (text.slice(start, end) !== segment.text) return;
+        if (findingRanges.some((f) => f.start < end && f.end > start)) return;
+        ranges.push({
+          start,
+          end,
+          termIds: [ann.hpoId],
+          modifierIds: [modifier.term_id],
+          labels: [label],
+        });
+      });
+    });
+  });
+
+  ranges.sort((left, right) => left.start - right.start);
+  const merged = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start < previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+      previous.termIds = [...new Set([...previous.termIds, ...range.termIds])];
+      previous.modifierIds = [...new Set([...previous.modifierIds, ...range.modifierIds])];
+      previous.labels = [...new Set([...previous.labels, ...range.labels])];
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
+}
+
+/**
  * Collapse the annotation model into a deduped, term-level findings list for the
  * response receipt. A term is marked 'manual' if any of its annotations is
  * manual. Annotations with no spans are excluded.
@@ -456,9 +569,43 @@ export function deriveFindingsFromAnnotations(annotations) {
         status: ann.status,
         confidence: ann.confidence ?? null,
         origin: ann.origin,
+        ...(Array.isArray(ann.modifiers) && ann.modifiers.length > 0
+          ? { modifiers: [...ann.modifiers] }
+          : {}),
+        ...(Array.isArray(ann.warnings) && ann.warnings.length > 0
+          ? { warnings: [...ann.warnings] }
+          : {}),
       });
-    } else if (ann.origin === 'manual') {
-      existing.origin = 'manual';
+    } else {
+      if (ann.origin === 'manual') {
+        existing.origin = 'manual';
+      }
+      if (Array.isArray(ann.modifiers) && ann.modifiers.length > 0) {
+        const current = Array.isArray(existing.modifiers) ? existing.modifiers : [];
+        const seenModIds = new Set(current.map((m) => m?.term_id).filter(Boolean));
+        const merged = [...current];
+        ann.modifiers.forEach((mod) => {
+          if (mod?.term_id && !seenModIds.has(mod.term_id)) {
+            seenModIds.add(mod.term_id);
+            merged.push(mod);
+          }
+        });
+        existing.modifiers = merged;
+      }
+      if (Array.isArray(ann.warnings) && ann.warnings.length > 0) {
+        const current = Array.isArray(existing.warnings) ? existing.warnings : [];
+        const warnKey = (w) => `${w?.code || ''}|${w?.term_id || ''}|${w?.message || ''}`;
+        const seenWarnKeys = new Set(current.map(warnKey));
+        const merged = [...current];
+        ann.warnings.forEach((warning) => {
+          const key = warnKey(warning);
+          if (!seenWarnKeys.has(key)) {
+            seenWarnKeys.add(key);
+            merged.push(warning);
+          }
+        });
+        existing.warnings = merged;
+      }
     }
   });
 

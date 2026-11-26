@@ -191,6 +191,7 @@
       "llmModes": {
         "twoPhase": "Zweistufige Extraktion"
       },
+      "extractModifiers": "Klinische Modifikatoren extrahieren",
       "llmDisclosure": "Bei der LLM-Extraktion kann der übermittelte Text von einem externen KI-Anbieter verarbeitet werden, den der Betreiber des Dienstes konfiguriert hat. Verwenden Sie nur Forschungstexte und geben Sie keine direkt identifizierenden Angaben ein.",
       "chunkingStrategy": "Aufteilungsstrategie",
       "windowSize": "Fenstergröße (Tokens)",
@@ -213,6 +214,7 @@
       "embeddingModel": "KI-Modell für das Text-Embedding auswählen",
       "similarityThreshold": "Mindest-Ähnlichkeitswert für Ergebnisse festlegen",
       "includeDetails": "Definitionen und Synonyme der HPO-Begriffe in die Suchergebnisse aufnehmen (zugunsten der Leistung auf 20 Ergebnisse begrenzt)",
+      "extractModifiers": "Klinische HPO-Modifikatoren (z. B. Schweregrad, Beginn oder Lateralität) im LLM-Modus für Befunde extrahieren",
       "language": "Sprache für Abfrageverarbeitung und Aussageerkennung auswählen",
       "subjectId": "Geben Sie eine Kennung für den Probanden ein",
       "sex": "Wählen Sie das biologische Geschlecht des Probanden",
@@ -235,7 +237,8 @@
       "similarityThresholdDescription": "Mindest-Ähnlichkeitsschwelle anpassen. Aktueller Wert: {similarityThreshold}",
       "selectQueryLanguage": "Abfragesprache auswählen",
       "queryLanguageDescription": "Sprache für die Abfrageverarbeitung auswählen. Aktuell ausgewählt: {selectedLanguage}",
-      "includeDetailsSwitch": "Definitionen und Synonyme der HPO-Begriffe einbeziehen"
+      "includeDetailsSwitch": "Definitionen und Synonyme der HPO-Begriffe einbeziehen",
+      "extractModifiersSwitch": "Klinische Modifikatoren im LLM-Modus extrahieren"
     },
     "form": {
       "queryPill": "Abfrage",
@@ -283,7 +286,10 @@
       "manual": "Manuell"
     },
     "spanAriaLabel": "Annotation bearbeiten: {label}",
-    "wordCount": "{count} Wort | {count} Wörter"
+    "wordCount": "{count} Wort | {count} Wörter",
+    "modifierEyebrow": "Klinischer Modifikator",
+    "modifierOf": "Modifiziert: {finding}",
+    "modifierAriaLabel": "Klinischer Modifikator {label} zu {finding}"
   },
   "hpoTermPicker": {
     "changeTitle": "HPO-Begriff ändern",
@@ -345,6 +351,8 @@
     "hideDetails": "Details ausblenden",
     "definitionLabel": "Definition",
     "synonymsLabel": "Synonyme",
+    "modifiersLabel": "Modifikatoren",
+    "warningsLabel": "Extraktionswarnungen",
     "textProcess": {
       "title": "Volltextanalyse",
       "chunksTitle": "Verarbeitete Textabschnitte & HPO-Begriffe pro Abschnitt",

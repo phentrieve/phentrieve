@@ -11,6 +11,23 @@ import typer
 app = typer.Typer()
 
 
+def _normalize_index_roots(raw_roots: list[str] | None) -> list[str] | None:
+    """Normalize and validate repeatable or comma-separated --index-roots CLI values."""
+    if not raw_roots:
+        return None
+    from phentrieve.ontology_profiles import _normalize_roots
+
+    parts = [
+        part.strip() for entry in raw_roots for part in entry.split(",") if part.strip()
+    ]
+    if not parts:
+        return None
+    try:
+        return sorted(_normalize_roots(parts))
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="'--index-roots'") from exc
+
+
 @app.command("build")
 def build_index(
     model_name: Annotated[
@@ -59,6 +76,17 @@ def build_index(
             help="Custom directory containing HPO data (overrides config)",
         ),
     ] = None,
+    index_roots: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--index-roots",
+            help=(
+                "Optional HPO root CURIE(s) to restrict indexing (repeatable or "
+                "comma-separated, e.g. --index-roots HP:0000118,HP:0012823). "
+                "Omit to index all active HPO terms."
+            ),
+        ),
+    ] = None,
 ):
     """Build vector index for HPO terms.
 
@@ -77,22 +105,38 @@ def build_index(
 
     # Determine device based on CPU flag
     device_override = "cpu" if cpu else None
+    normalized_index_roots = _normalize_index_roots(index_roots)
 
     index_type_str = "multi-vector" if multi_vector else "single-vector"
     typer.echo(f"Starting {index_type_str} index building process")
 
-    success = orchestrate_index_building(
-        model_name_arg=model_name,
-        all_models=all_models,
-        batch_size=batch_size,
-        trust_remote_code=trust_remote_code,
-        device_override=device_override,
-        recreate=recreate,
-        debug=debug,
-        multi_vector=multi_vector,
-        index_dir_override=index_dir,
-        data_dir_override=data_dir,
-    )
+    if normalized_index_roots is not None:
+        success = orchestrate_index_building(
+            model_name_arg=model_name,
+            all_models=all_models,
+            batch_size=batch_size,
+            trust_remote_code=trust_remote_code,
+            device_override=device_override,
+            recreate=recreate,
+            debug=debug,
+            multi_vector=multi_vector,
+            index_dir_override=index_dir,
+            data_dir_override=data_dir,
+            index_roots=normalized_index_roots,
+        )
+    else:
+        success = orchestrate_index_building(
+            model_name_arg=model_name,
+            all_models=all_models,
+            batch_size=batch_size,
+            trust_remote_code=trust_remote_code,
+            device_override=device_override,
+            recreate=recreate,
+            debug=debug,
+            multi_vector=multi_vector,
+            index_dir_override=index_dir,
+            data_dir_override=data_dir,
+        )
 
     if success:
         typer.secho("Index building completed successfully!", fg=typer.colors.GREEN)

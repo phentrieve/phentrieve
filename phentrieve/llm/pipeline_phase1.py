@@ -249,9 +249,32 @@ def prefer_richer_text(current: str | None, incoming: str | None) -> str | None:
     return incoming_text if len(incoming_text) > len(current_text) else current_text
 
 
+def normalize_modifiers(raw_modifiers: Any, *, max_items: int = 16) -> list[str]:
+    """Return stripped non-empty modifier phrases, deduplicated preserving order."""
+    if not isinstance(raw_modifiers, list):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_modifiers:
+        if not isinstance(raw, str):
+            continue
+        cleaned = raw.strip()
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key not in seen:
+            seen.add(key)
+            normalized.append(cleaned)
+            if len(normalized) >= max_items:
+                break
+    return normalized
+
+
 def _clone_split_phase1_item(item: dict[str, Any], phrase: str) -> dict[str, Any]:
     split_item = dict(item)
     split_item["phrase"] = phrase
+    if "modifiers" in item:
+        split_item["modifiers"] = normalize_modifiers(item.get("modifiers"))
     # The source quote stays verbatim so its document offsets resolve (#488).
     split_item["start_char"] = None
     split_item["end_char"] = None
@@ -298,11 +321,16 @@ def expand_combined_phase1_extractions(
         if expanded_abbreviation:
             expanded_item = dict(item)
             expanded_item["phrase"] = expanded_abbreviation
+            if "modifiers" in item:
+                expanded_item["modifiers"] = normalize_modifiers(item.get("modifiers"))
             expanded.append(expanded_item)
             continue
         split_phrases = split_combined_phase1_phrase(phrase)
         if not split_phrases:
-            expanded.append(dict(item))
+            copied_item = dict(item)
+            if "modifiers" in item:
+                copied_item["modifiers"] = normalize_modifiers(item.get("modifiers"))
+            expanded.append(copied_item)
             continue
         expanded.extend(
             _clone_split_phase1_item(item, split_phrase)

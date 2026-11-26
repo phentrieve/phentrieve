@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from phentrieve.modifier_models import CURIE_PATTERN, ModifierSource
+
 _NORMALIZED_SUBJECT_SEX = Literal["UNKNOWN_SEX", "FEMALE", "MALE", "OTHER_SEX"]
 _SUBJECT_SEX_ALIASES = {
     "0": "UNKNOWN_SEX",
@@ -142,6 +144,44 @@ class ExportTextAttributionRequest(BaseModel):
         return self
 
 
+class ExportModifierSegmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    text: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "ExportModifierSegmentRequest":
+        if not self.text.strip():
+            raise ValueError("segment text must not be blank.")
+        if self.end <= self.start:
+            raise ValueError("segment end must be greater than start.")
+        if len(self.text) != self.end - self.start:
+            raise ValueError("segment text length must equal end - start.")
+        return self
+
+
+class ExportModifierRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    term_id: str = Field(max_length=128, pattern=CURIE_PATTERN)
+    label: str = Field(min_length=1, max_length=512)
+    segments: list[ExportModifierSegmentRequest] = Field(
+        default_factory=list, max_length=64
+    )
+    source: ModifierSource | None = None
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def normalize_label(cls, value: object) -> str:
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+        raise ValueError("modifier label must be a non-empty string.")
+
+
 class ExportPhenotypeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -158,6 +198,7 @@ class ExportPhenotypeRequest(BaseModel):
     match_method: str | None = None
     source_chunk_ids: list[int] = Field(default_factory=list)
     text_attributions: list[ExportTextAttributionRequest] = Field(default_factory=list)
+    modifiers: list[ExportModifierRequest] = Field(default_factory=list, max_length=64)
 
     @field_validator("label", mode="before")
     @classmethod
@@ -177,7 +218,9 @@ class PhenopacketExportRequest(BaseModel):
     input_text: str | None = None
     subject: ExportSubjectRequest | None = None
     include_annotation_sidecar: bool = False
-    phenotypes: list[ExportPhenotypeRequest] = Field(default_factory=list)
+    phenotypes: list[ExportPhenotypeRequest] = Field(
+        default_factory=list, max_length=500
+    )
 
     @field_validator("case_id", mode="before")
     @classmethod

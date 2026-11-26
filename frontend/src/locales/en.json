@@ -191,6 +191,7 @@
       "llmModes": {
         "twoPhase": "Two-phase extraction"
       },
+      "extractModifiers": "Extract clinical modifiers",
       "llmDisclosure": "LLM extraction may process submitted text with an external AI provider configured by the service operator. Use research text only; do not submit directly identifying information.",
       "chunkingStrategy": "Chunking strategy",
       "windowSize": "Window size (tokens)",
@@ -213,6 +214,7 @@
       "embeddingModel": "Select the AI model used for embedding text",
       "similarityThreshold": "Set the minimum similarity score required for results",
       "includeDetails": "Include HPO term definitions and synonyms in search results (limited to 20 results)",
+      "extractModifiers": "Extract HPO clinical modifiers (such as severity, onset, or laterality) attached to findings in LLM mode",
       "language": "Select language for query processing and assertion detection",
       "subjectId": "Enter an identifier for the subject",
       "sex": "Select the subject's biological sex",
@@ -235,7 +237,8 @@
       "similarityThresholdDescription": "Adjust minimum similarity threshold. Current value: {similarityThreshold}",
       "selectQueryLanguage": "Select query language",
       "queryLanguageDescription": "Choose the language for query processing. Currently selected: {selectedLanguage}",
-      "includeDetailsSwitch": "Include HPO term definitions and synonyms"
+      "includeDetailsSwitch": "Include HPO term definitions and synonyms",
+      "extractModifiersSwitch": "Extract clinical modifiers in LLM mode"
     },
     "form": {
       "queryPill": "Query",
@@ -283,7 +286,10 @@
       "manual": "Manual"
     },
     "spanAriaLabel": "Edit annotation: {label}",
-    "wordCount": "{count} word | {count} words"
+    "wordCount": "{count} word | {count} words",
+    "modifierEyebrow": "Clinical modifier",
+    "modifierOf": "Modifies: {finding}",
+    "modifierAriaLabel": "Clinical modifier {label} of {finding}"
   },
   "hpoTermPicker": {
     "changeTitle": "Change HPO term",
@@ -340,6 +346,8 @@
     "hideDetails": "Hide details",
     "definitionLabel": "Definition",
     "synonymsLabel": "Synonyms",
+    "modifiersLabel": "Modifiers",
+    "warningsLabel": "Extraction warnings",
     "defaultError": "An error occurred while processing your request. Please try again.",
     "confidenceScoreTooltip": "Confidence score: {score}",
     "sourceChunksTooltip": "Found in {count} text chunks",

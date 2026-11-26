@@ -74,6 +74,10 @@ def _map_phenotype_for_export(phenotype: ExportPhenotypeRequest) -> dict[str, An
             "spans": spans,
         }
     )
+    if phenotype.modifiers:
+        export_record["modifiers"] = [
+            modifier.model_dump(exclude_none=True) for modifier in phenotype.modifiers
+        ]
     return export_record
 
 

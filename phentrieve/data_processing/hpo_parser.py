@@ -45,16 +45,6 @@ HPO_GITHUB_API_URL = (
 
 TRUE_ONTOLOGY_ROOT = "HP:0000001"  # All of HPO
 
-# HPO branches that are often excluded for *phenotypic abnormality* specific tasks,
-# but all terms will be extracted and processed for graph properties.
-EXCLUDED_ROOTS_FOR_PHENOTYPIC_FILTERING = {
-    "HP:0000005",  # Mode of inheritance
-    "HP:0012823",  # Clinical modifier
-    "HP:0031797",  # Clinical course
-    "HP:0040279",  # Frequency
-    "HP:0025354",  # Evidence
-}
-
 logger = logging.getLogger(__name__)
 
 

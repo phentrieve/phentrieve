@@ -251,11 +251,17 @@ export function useQueryInterfaceController({
       });
 
       if (useTextProcessMode) {
+        const extractModifiers = Boolean(
+          textProcessOptions?.extractModifiers ?? state.extractModifiers?.value ?? false
+        );
         const textProcessPayload = {
           text: currentQuery,
           extractionBackend: textProcessOptions.extractionBackend,
           llmModel: textProcessOptions.llmModel,
           llmMode: textProcessOptions.llmMode,
+          ...(textProcessOptions.extractionBackend === 'llm' && extractModifiers
+            ? { extractModifiers: true }
+            : {}),
           language: state.selectedLanguage.value,
           chunkingStrategy: state.chunkingStrategy.value,
           windowSize: state.windowSize.value,

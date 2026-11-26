@@ -27,6 +27,7 @@ describe('useAdvancedOptions', () => {
     expect(result).toHaveProperty('stepSize');
     expect(result).toHaveProperty('minSegmentLength');
     expect(result).toHaveProperty('numResultsPerChunk');
+    expect(result).toHaveProperty('extractModifiers');
     expect(result).toHaveProperty('resetToDefaults');
   });
 
@@ -43,13 +44,16 @@ describe('useAdvancedOptions', () => {
     expect(opts.stepSize.value).toBe(DEFAULT_STEP_SIZE);
     expect(opts.minSegmentLength.value).toBe(DEFAULT_MIN_SEGMENT_LENGTH);
     expect(opts.numResultsPerChunk.value).toBe(DEFAULT_NUM_RESULTS_PER_CHUNK);
+    expect(opts.extractModifiers.value).toBe(false);
   });
 
-  it('resetToDefaults resets similarity threshold', () => {
-    const { similarityThreshold, resetToDefaults } = useAdvancedOptions();
+  it('resetToDefaults resets similarity threshold and extractModifiers', () => {
+    const { similarityThreshold, extractModifiers, resetToDefaults } = useAdvancedOptions();
     similarityThreshold.value = 0.9;
+    extractModifiers.value = true;
     resetToDefaults();
     expect(similarityThreshold.value).toBe(DEFAULT_SIMILARITY_THRESHOLD);
+    expect(extractModifiers.value).toBe(false);
   });
 
   it('refs are independent across calls', () => {

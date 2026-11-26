@@ -430,6 +430,13 @@ def process_text_for_hpo_command(
             help="Internal grounding mode for the LLM backend.",
         ),
     ] = "whole_document_grounded",
+    extract_modifiers: Annotated[
+        bool,
+        typer.Option(
+            "--extract-modifiers/--no-extract-modifiers",
+            help="Extract clinical modifiers for findings (LLM backend only; opt-in).",
+        ),
+    ] = False,
     chunk_retrieval_threshold: Annotated[
         float,
         typer.Option(
@@ -763,6 +770,14 @@ def process_text_for_hpo_command(
         cli_overrides=cli_overrides,
     )
 
+    if extract_modifiers and extraction_backend != "llm":
+        typer.secho(
+            "Warning: --extract-modifiers is only supported with "
+            "--extraction-backend llm and will be ignored.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+
     try:
         service_result = run_full_text_service(
             text=raw_text,
@@ -773,6 +788,7 @@ def process_text_for_hpo_command(
             llm_base_url=llm_base_url,
             llm_mode=llm_mode,
             llm_internal_mode=llm_internal_mode,
+            extract_modifiers=extract_modifiers,
             chunking_pipeline_config=chunking_pipeline_config,
             assertion_config=assertion_config,
             include_positions=True,
@@ -1182,6 +1198,16 @@ def _format_and_output_results(
                             if isinstance(result.get("chunks"), list)
                             and result["chunks"]
                             else -1
+                        ),
+                        **(
+                            {"modifiers": result["modifiers"]}
+                            if "modifiers" in result
+                            else {}
+                        ),
+                        **(
+                            {"warnings": result["warnings"]}
+                            if result.get("warnings")
+                            else {}
                         ),
                     }
                     for result in term_level_results

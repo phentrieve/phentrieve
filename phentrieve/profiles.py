@@ -49,6 +49,7 @@ class Profile(BaseModel):
     multi_vector: bool | None = None
     aggregation_strategy: str | None = None
     extraction_backend: Literal["standard", "llm"] | None = None
+    extract_modifiers: bool | None = None
 
     # Adaptive rechunking block - strict shape defined by Plan B; permissive here.
     adaptive_rechunking: AdaptiveRechunkingProfileBlock | None = None

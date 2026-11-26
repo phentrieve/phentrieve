@@ -515,6 +515,99 @@ describe('buildSegmentsFromAnnotations', () => {
   });
 });
 
+describe('buildSegmentsFromAnnotations modifier evidence', () => {
+  const note = 'Severe hearing loss on the left side.';
+  // "Severe" [0,6), "hearing loss" [7,19), "left" [27,31)
+  const finding = {
+    id: 'auto-HP:0000365-0',
+    hpoId: 'HP:0000365',
+    label: 'Hearing impairment',
+    status: 'affirmed',
+    origin: 'auto',
+    spans: [{ start: 7, end: 19, text: 'hearing loss' }],
+    modifiers: [
+      {
+        term_id: 'HP:0012828',
+        label: 'Severe',
+        segments: [{ start: 0, end: 6, text: 'Severe' }],
+      },
+      {
+        term_id: 'HP:0012835',
+        label: 'Left',
+        segments: [{ start: 27, end: 31, text: 'left' }],
+      },
+      // Inside the finding span by design: no segments, nothing to mark.
+      { term_id: 'HP:0003577', label: 'Congenital onset', segments: [] },
+    ],
+  };
+
+  it('marks modifier segments in order, linked to their finding, without highlighting them', () => {
+    const segs = buildSegmentsFromAnnotations(note, [finding]);
+    const modifiers = segs.filter((s) => s.modifier);
+    expect(modifiers.map((s) => s.text)).toEqual(['Severe', 'left']);
+    expect(modifiers.every((s) => s.highlighted === false)).toBe(true);
+    expect(modifiers[0].termIds).toEqual(['HP:0000365']);
+    expect(modifiers[0].modifierIds).toEqual(['HP:0012828']);
+    expect(modifiers[0].tooltip).toBe('Severe (HP:0012828)');
+    expect(modifiers[0].findingTooltip).toBe('Hearing impairment (HP:0000365)');
+    expect(segs.filter((s) => s.highlighted).map((s) => s.text)).toEqual(['hearing loss']);
+    expect(segs.map((s) => s.text).join('')).toBe(note);
+  });
+
+  it('lets a finding span win over an overlapping modifier segment', () => {
+    // Chunk-fallback span covering the whole sentence.
+    const wide = { ...finding, spans: [{ start: 0, end: note.length, text: note }] };
+    const segs = buildSegmentsFromAnnotations(note, [wide]);
+    expect(segs.some((s) => s.modifier)).toBe(false);
+    expect(segs.map((s) => s.text).join('')).toBe(note);
+  });
+
+  it('merges a modifier quoted by two findings and keeps both findings', () => {
+    const other = {
+      id: 'auto-HP:0001251-1',
+      hpoId: 'HP:0001251',
+      label: 'Ataxia',
+      status: 'affirmed',
+      origin: 'auto',
+      spans: [],
+      modifiers: [
+        {
+          term_id: 'HP:0012828',
+          label: 'Severe',
+          segments: [{ start: 0, end: 6, text: 'Severe' }],
+        },
+      ],
+    };
+    const segs = buildSegmentsFromAnnotations(note, [finding, other]);
+    const severe = segs.filter((s) => s.modifier && s.text === 'Severe');
+    expect(severe).toHaveLength(1);
+    expect(severe[0].termIds).toEqual(['HP:0000365', 'HP:0001251']);
+    expect(segs.map((s) => s.text).join('')).toBe(note);
+  });
+
+  it('marks modifiers even when the finding has no resolvable span', () => {
+    const segs = buildSegmentsFromAnnotations(note, [{ ...finding, spans: [] }]);
+    expect(segs.filter((s) => s.modifier).map((s) => s.text)).toEqual(['Severe', 'left']);
+    expect(segs.map((s) => s.text).join('')).toBe(note);
+  });
+
+  it('drops stale or malformed modifier offsets', () => {
+    const stale = {
+      ...finding,
+      modifiers: [
+        { term_id: 'HP:0012828', label: 'Severe', segments: [{ start: 0, end: 6, text: 'Mild!' }] },
+        { term_id: 'HP:0012835', label: 'Left', segments: [{ start: 30, end: 99, text: 'x' }] },
+        { term_id: 'HP:0012832', label: 'Bilateral', segments: [{ start: '0', end: 6 }] },
+      ],
+    };
+    const segs = buildSegmentsFromAnnotations(note, [stale]);
+    expect(segs.some((s) => s.modifier)).toBe(false);
+    expect(buildSegmentsFromAnnotations('[redacted]', [finding]).some((s) => s.modifier)).toBe(
+      false
+    );
+  });
+});
+
 describe('deriveFindingsFromAnnotations', () => {
   it('dedupes by hpoId, marks the term manual if any span is manual', () => {
     const findings = deriveFindingsFromAnnotations([
@@ -610,5 +703,59 @@ describe('trimSelection', () => {
 
   it('returns null for a whitespace-only selection', () => {
     expect(trimSelection('   ', 5, 8)).toBeNull();
+  });
+});
+
+describe('modifier codepoint offsets and segment verification', () => {
+  it('maps Python codepoint offsets accurately after non-BMP Unicode characters', () => {
+    // 🧬 is 1 Python codepoint (index 0) but 2 UTF-16 code units in JS.
+    const emojiNote = '🧬 Severe hearing loss.';
+    // Python codepoints: '🧬'=0, ' '=1, 'Severe'=2..8, ' '=8, 'hearing loss'=9..21
+    const annotations = [
+      {
+        id: 'auto-HP:0000365-0',
+        hpoId: 'HP:0000365',
+        label: 'Hearing impairment',
+        status: 'affirmed',
+        spans: [{ start: 10, end: 22, text: 'hearing loss' }],
+        origin: 'auto',
+        modifiers: [
+          {
+            term_id: 'HP:0012828',
+            label: 'Severe',
+            segments: [{ start: 2, end: 8, text: 'Severe' }],
+          },
+        ],
+      },
+    ];
+
+    const segments = buildSegmentsFromAnnotations(emojiNote, annotations);
+    const modSeg = segments.find((s) => s.modifier);
+    expect(modSeg).toBeTruthy();
+    expect(modSeg.text).toBe('Severe');
+  });
+
+  it('drops modifier segments that omit segment.text so stale offsets cannot slice redacted text', () => {
+    const redactedNote = '[redacted] hearing loss.';
+    const annotations = [
+      {
+        id: 'auto-HP:0000365-0',
+        hpoId: 'HP:0000365',
+        label: 'Hearing impairment',
+        status: 'affirmed',
+        spans: [{ start: 11, end: 23, text: 'hearing loss' }],
+        origin: 'auto',
+        modifiers: [
+          {
+            term_id: 'HP:0012828',
+            label: 'Severe',
+            segments: [{ start: 0, end: 6 }],
+          },
+        ],
+      },
+    ];
+
+    const segments = buildSegmentsFromAnnotations(redactedNote, annotations);
+    expect(segments.some((s) => s.modifier)).toBe(false);
   });
 });

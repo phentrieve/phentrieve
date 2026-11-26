@@ -28,6 +28,7 @@ export function useAdvancedOptions() {
   const stepSize = ref(DEFAULT_STEP_SIZE);
   const minSegmentLength = ref(DEFAULT_MIN_SEGMENT_LENGTH);
   const numResultsPerChunk = ref(DEFAULT_NUM_RESULTS_PER_CHUNK);
+  const extractModifiers = ref(false);
 
   function resetToDefaults() {
     numResults.value = DEFAULT_NUM_RESULTS;
@@ -40,6 +41,7 @@ export function useAdvancedOptions() {
     stepSize.value = DEFAULT_STEP_SIZE;
     minSegmentLength.value = DEFAULT_MIN_SEGMENT_LENGTH;
     numResultsPerChunk.value = DEFAULT_NUM_RESULTS_PER_CHUNK;
+    extractModifiers.value = false;
   }
 
   return {
@@ -54,6 +56,7 @@ export function useAdvancedOptions() {
     stepSize,
     minSegmentLength,
     numResultsPerChunk,
+    extractModifiers,
     resetToDefaults,
   };
 }

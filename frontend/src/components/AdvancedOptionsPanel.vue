@@ -279,6 +279,40 @@
               </template>
             </v-select>
           </v-col>
+          <v-col cols="12" md="6" class="pa-1 d-flex align-center">
+            <v-tooltip
+              location="bottom"
+              :text="$t('queryInterface.tooltips.extractModifiers')"
+              :aria-label="$t('queryInterface.tooltips.extractModifiers')"
+            >
+              <template #activator="{ props }">
+                <v-switch
+                  v-bind="props"
+                  :model-value="Boolean(resolvedTextProcessOptions.extractModifiers)"
+                  :disabled="disabled"
+                  color="primary"
+                  inset
+                  density="compact"
+                  hide-details
+                  class="mt-0 pt-0"
+                  data-testid="extract-modifiers-switch"
+                  :aria-label="$t('queryInterface.accessibility.extractModifiersSwitch')"
+                  @update:model-value="
+                    $emit('update:textProcessOptions', {
+                      ...textProcessOptions,
+                      extractModifiers: Boolean($event),
+                    })
+                  "
+                >
+                  <template #label>
+                    <span class="text-caption">{{
+                      $t('queryInterface.advancedOptions.extractModifiers')
+                    }}</span>
+                  </template>
+                </v-switch>
+              </template>
+            </v-tooltip>
+          </v-col>
         </v-row>
         <v-alert
           v-if="textProcessOptions.extractionBackend === 'llm'"
@@ -564,6 +598,7 @@ const resolvedTextProcessOptions = computed(() => ({
   extractionBackend: 'llm',
   llmModel: panelProps.defaultLlmModel,
   llmMode: panelProps.defaultLlmMode ?? 'two_phase',
+  extractModifiers: false,
   ...panelProps.textProcessOptions,
 }));
 

@@ -9,6 +9,8 @@ from api.dependencies import get_dense_retriever_dependency
 from api.schemas.text_processing_schemas import (
     AggregatedHPOTermAPI,
     HPOMatchInChunkAPI,
+    ModifierAPI,
+    OntologyWarningAPI,
     ProcessedChunkAPI,
     TextAttributionSpanAPI,
     TextProcessingRequest,
@@ -111,6 +113,20 @@ def _build_aggregated_hpo_term(term: dict[str, Any]) -> AggregatedHPOTermAPI:
         match_method=term.get("match_method"),
         definition=term.get("definition"),
         synonyms=term.get("synonyms"),
+        modifiers=[
+            ModifierAPI.model_validate(
+                mod.model_dump(mode="json") if hasattr(mod, "model_dump") else mod
+            )
+            for mod in _coerce_response_items(term.get("modifiers"))
+            if isinstance(mod, dict) or hasattr(mod, "model_dump")
+        ],
+        warnings=[
+            OntologyWarningAPI.model_validate(
+                warn.model_dump(mode="json") if hasattr(warn, "model_dump") else warn
+            )
+            for warn in _coerce_response_items(term.get("warnings"))
+            if isinstance(warn, dict) or hasattr(warn, "model_dump")
+        ],
         score=term.get("score"),
     )
 
@@ -343,6 +359,7 @@ async def execute_llm_text_processing(
         "llm_base_url": target.base_url,
         "llm_mode": request.llm_mode or "two_phase",
         "llm_internal_mode": request.llm_internal_mode or "whole_document_grounded",
+        "extract_modifiers": request.extract_modifiers,
         "chunking_pipeline_config": get_chunking_config_for_api(request),
         "assertion_config": {
             **DEFAULT_ASSERTION_CONFIG,

@@ -222,6 +222,9 @@ function onAddToCollection() {
     hpo_id: ann.hpoId,
     label: ann.label,
     assertion_status: ann.status,
+    ...(Array.isArray(ann.modifiers) && ann.modifiers.length > 0
+      ? { modifiers: ann.modifiers }
+      : {}),
   });
 }
 
