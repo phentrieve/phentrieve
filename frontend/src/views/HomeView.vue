@@ -77,6 +77,7 @@ import { computed, ref } from 'vue';
 import QueryInterface from '@/components/QueryInterface.vue';
 import { useLogStore } from '@/stores/log';
 import { useConversationStore } from '@/stores/conversation';
+import { useDiseaseRankingStore } from '@/stores/diseaseRanking';
 import { logService } from '@/services/logService';
 import { useI18n } from 'vue-i18n';
 
@@ -88,6 +89,7 @@ export default {
   setup() {
     const logStore = useLogStore();
     const conversationStore = useConversationStore();
+    const diseaseRankingStore = useDiseaseRankingStore();
     const { t } = useI18n();
 
     // Once there are results the header shrinks to a small logo row, so the
@@ -104,6 +106,7 @@ export default {
     function handleReset() {
       logService.info('User initiated app reset via logo click');
       conversationStore.resetAll();
+      diseaseRankingStore.clearCase();
       showResetDialog.value = false;
       logService.info('App state reset complete');
     }

@@ -20,19 +20,21 @@ export const RANK_TOP_K = 20;
 // Must match DiseaseRankingRequestAPI.terms max_length on the server
 export const MAX_PROFILE_TERMS = 200;
 const ASSERTION_PRIORITY = { affirmed: 0, uncertain: 1, negated: 2 };
+const HPO_ID_RE = /^HP:\d{7}$/;
 
 /**
- * Profile terms for the request: one entry per HPO ID (first wins), present terms
+ * Profile terms for the request: one entry per valid HPO ID (first wins), present terms
  * first, then uncertain, then excluded, capped at MAX_PROFILE_TERMS.
  * @returns {{terms: Array<{hpo_id: string, assertion: string}>, dropped: number}}
  */
 export function buildProfile(phenotypes) {
   const seen = new Set();
   const unique = [];
-  for (const p of phenotypes) {
-    if (!p?.hpo_id || seen.has(p.hpo_id)) continue;
-    seen.add(p.hpo_id);
-    unique.push(toProfileTerm(p));
+  for (const p of Array.isArray(phenotypes) ? phenotypes : []) {
+    const hpoId = typeof p?.hpo_id === 'string' ? p.hpo_id.trim() : '';
+    if (!hpoId || !HPO_ID_RE.test(hpoId) || seen.has(hpoId)) continue;
+    seen.add(hpoId);
+    unique.push(toProfileTerm({ ...p, hpo_id: hpoId }));
   }
   const ordered = unique
     .map((t, i) => ({ t, i }))
@@ -89,15 +91,19 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
   let statusPromise = null;
 
   const available = computed(() => Boolean(status.value?.enabled && status.value?.index_ready));
+  const dedupedProfileTerms = computed(() => buildProfile(lastPhenotypes.value).terms);
   const uncertainCount = computed(
-    () => lastPhenotypes.value.filter((p) => toProfileTerm(p).assertion === 'uncertain').length
+    () => dedupedProfileTerms.value.filter((t) => t.assertion === 'uncertain').length
   );
   const presentCount = computed(
-    () => lastPhenotypes.value.filter((p) => toProfileTerm(p).assertion === 'affirmed').length
+    () => dedupedProfileTerms.value.filter((t) => t.assertion === 'affirmed').length
   );
 
   async function checkAvailability() {
-    if (status.value) return status.value;
+    // Re-check if ranking is enabled but the index was still building on the last probe.
+    if (status.value && (!status.value.enabled || status.value.index_ready)) {
+      return status.value;
+    }
     if (!statusPromise) {
       statusPromise = service
         .getConfigInfo()
@@ -172,7 +178,11 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
   function scheduleRank(phenotypes) {
     lastPhenotypes.value = Array.isArray(phenotypes) ? [...phenotypes] : [];
     if (!panelOpen.value) return;
-    clearTimeout(timer);
+    // Cancel any in-flight request immediately so it cannot resolve with stale
+    // results while the debounce timer is waiting.
+    cancelPending();
+    seq++;
+    loading.value = false;
     timer = setTimeout(() => {
       timer = null;
       rankNow(lastPhenotypes.value);
@@ -181,6 +191,8 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
 
   function open(phenotypes) {
     panelOpen.value = true;
+    result.value = null;
+    error.value = null;
     return rankNow(phenotypes);
   }
 
@@ -191,26 +203,32 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
     loading.value = false;
   }
 
+  function clearCase() {
+    close();
+    error.value = null;
+    result.value = null;
+    lastPhenotypes.value = [];
+    droppedTerms.value = 0;
+  }
+
   function setLevel(value) {
-    if (value !== 'disease' && value !== 'gene') return;
+    if ((value !== 'disease' && value !== 'gene') || value === level.value) return;
     level.value = value;
     if (panelOpen.value) scheduleRank(lastPhenotypes.value);
   }
 
   function setIncludeUncertain(value) {
-    includeUncertain.value = Boolean(value);
+    const next = Boolean(value);
+    if (next === includeUncertain.value) return;
+    includeUncertain.value = next;
     if (panelOpen.value) scheduleRank(lastPhenotypes.value);
   }
 
   function $reset() {
-    close();
+    clearCase();
     status.value = null;
     level.value = 'disease';
     includeUncertain.value = false;
-    error.value = null;
-    result.value = null;
-    lastPhenotypes.value = [];
-    droppedTerms.value = 0;
   }
 
   return {
@@ -230,6 +248,7 @@ export const useDiseaseRankingStore = defineStore('diseaseRanking', () => {
     scheduleRank,
     open,
     close,
+    clearCase,
     setLevel,
     setIncludeUncertain,
     $reset,

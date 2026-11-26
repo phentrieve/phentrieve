@@ -627,6 +627,7 @@
     "sources": "Annotaties:",
     "bestDisease": "beste aandoening: {label}",
     "genes": "Gen {genes}",
+    "retry": "Opnieuw proberen",
     "errors": {
       "unavailable": "De ziekte-index is op deze server niet beschikbaar.",
       "disabled": "Rangschikking van aandoeningen is op deze server niet ingeschakeld.",

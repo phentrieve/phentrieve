@@ -627,6 +627,7 @@
     "sources": "Annotations:",
     "bestDisease": "best disease: {label}",
     "genes": "Gene {genes}",
+    "retry": "Retry",
     "errors": {
       "unavailable": "The disease index is not available on this server.",
       "disabled": "Disease ranking is not enabled on this server.",

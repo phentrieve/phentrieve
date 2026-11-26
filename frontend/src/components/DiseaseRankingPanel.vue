@@ -3,13 +3,13 @@
     :model-value="store.panelOpen"
     location="right"
     :width="drawerWidth"
-    mobile-breakpoint="md"
+    mobile-breakpoint="xl"
     disable-resize-watcher
     :style="{ zIndex: drawerZIndex }"
     :aria-label="t('diseaseRanking.title')"
     data-testid="disease-ranking-drawer"
     @update:model-value="onDrawerToggle"
-    @keydown.esc="store.close()"
+    @keydown.esc.stop="store.close()"
   >
     <div class="d-flex align-start pa-4 pb-3">
       <div class="flex-grow-1" style="min-width: 0">
@@ -21,6 +21,7 @@
         </div>
       </div>
       <v-btn
+        ref="closeBtn"
         icon="mdi-close"
         variant="text"
         :aria-label="t('diseaseRanking.close')"
@@ -76,6 +77,8 @@
 
     <div
       class="d-flex flex-wrap px-4 pt-1 pb-2 text-caption text-medium-emphasis status-line"
+      role="status"
+      aria-live="polite"
       data-testid="disease-ranking-status"
     >
       <template v-if="result">
@@ -101,13 +104,31 @@
     />
 
     <div v-if="store.error" class="pa-4">
-      <v-alert type="error" variant="tonal" density="compact" data-testid="disease-ranking-error">
-        {{ errorMessage }}
+      <v-alert
+        type="error"
+        variant="tonal"
+        density="compact"
+        role="alert"
+        data-testid="disease-ranking-error"
+      >
+        <div class="d-flex align-center justify-space-between ga-2">
+          <span>{{ errorMessage }}</span>
+          <v-btn
+            v-if="store.error?.status !== 404"
+            size="small"
+            variant="text"
+            color="error"
+            data-testid="disease-ranking-retry"
+            @click="store.rankNow()"
+          >
+            {{ t('diseaseRanking.retry') }}
+          </v-btn>
+        </div>
       </v-alert>
     </div>
 
     <div
-      v-else-if="!store.loading && !result"
+      v-else-if="!store.loading && (!result || rows.length === 0)"
       class="pa-6 text-center text-body-2 text-medium-emphasis"
       data-testid="disease-ranking-empty"
     >
@@ -115,7 +136,7 @@
     </div>
 
     <v-expansion-panels
-      v-else-if="result"
+      v-else-if="result && rows.length > 0"
       v-model="openRow"
       variant="accordion"
       flat
@@ -170,7 +191,7 @@
         </v-expansion-panel-title>
         <v-expansion-panel-text>
           <div class="text-overline">{{ t('diseaseRanking.why') }}</div>
-          <div class="ranking-table-wrap">
+          <div v-if="row.explanation.matches.length" class="ranking-table-wrap">
             <table class="ranking-table text-body-2">
               <thead>
                 <tr>
@@ -221,6 +242,7 @@
               v-for="link in row.links"
               :key="link.href"
               :href="link.href"
+              :aria-label="link.ariaLabel"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -252,10 +274,10 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useDisplay } from 'vuetify';
-import { useDiseaseRankingStore, MAX_PROFILE_TERMS } from '../stores/diseaseRanking';
+import { useDiseaseRankingStore, buildProfile, MAX_PROFILE_TERMS } from '../stores/diseaseRanking';
 
 const props = defineProps({
   phenotypes: { type: Array, default: () => [] },
@@ -263,23 +285,46 @@ const props = defineProps({
 
 const { t } = useI18n();
 const display = useDisplay();
-// Beside the case workspace from md up; full width over it on small screens
+// Overlay below xl so two docked right drawers never crush <v-main> at laptop widths
 const drawerWidth = computed(() => (display.mdAndUp.value ? 560 : display.width.value));
-// Over the case workspace (1500) only on small screens, where it is a full-width overlay
-const drawerZIndex = computed(() => (display.mdAndUp.value ? 1490 : 1510));
+const drawerZIndex = computed(() => (display.xlAndUp.value ? 1490 : 1510));
 const store = useDiseaseRankingStore();
 const openRow = ref(null);
+const closeBtn = ref(null);
 const maxTerms = MAX_PROFILE_TERMS;
 
 const result = computed(() => store.result);
 
+const DISEASE_ID_RE = /^(OMIM|ORPHA):(\d+)$/;
+
 function idLinks(id) {
-  const [prefix, num] = String(id).split(':');
-  if (prefix === 'OMIM') return { label: 'OMIM', href: `https://omim.org/entry/${num}` };
-  if (prefix === 'ORPHA') {
-    return { label: 'Orphanet', href: `https://www.orpha.net/en/disease/detail/${num}` };
+  const match = DISEASE_ID_RE.exec(String(id ?? '').trim());
+  if (!match) return null;
+  const [, prefix, num] = match;
+  if (prefix === 'OMIM') {
+    return {
+      label: 'OMIM',
+      ariaLabel: `OMIM ${match[0]}`,
+      href: `https://omim.org/entry/${num}`,
+    };
   }
-  return null;
+  return {
+    label: 'Orphanet',
+    ariaLabel: `Orphanet ${match[0]}`,
+    href: `https://www.orpha.net/en/disease/detail/${num}`,
+  };
+}
+
+function buildUniqueLinks(ids) {
+  const seen = new Set();
+  const links = [];
+  for (const id of ids) {
+    const link = idLinks(id);
+    if (!link || seen.has(link.href)) continue;
+    seen.add(link.href);
+    links.push(link);
+  }
+  return links;
 }
 
 const rows = computed(() => {
@@ -296,7 +341,7 @@ const rows = computed(() => {
       score: g.score,
       scoreText: g.score.toFixed(2),
       explanation: g.explanation,
-      links: [idLinks(g.best_disease_id)].filter(Boolean),
+      links: buildUniqueLinks([g.best_disease_id]),
     }));
   }
   return data.diseases.map((d) => ({
@@ -309,7 +354,7 @@ const rows = computed(() => {
     score: d.score,
     scoreText: d.score.toFixed(2),
     explanation: d.explanation,
-    links: [d.disease_id, ...d.twins].map(idLinks).filter(Boolean),
+    links: buildUniqueLinks([d.disease_id, ...d.twins]),
   }));
 });
 
@@ -321,12 +366,15 @@ const errorMessage = computed(() => {
 });
 
 function formatPercent(value) {
-  return `${Math.round(Number(value) * 100)} %`;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '-';
+  return `${Math.round(num * 100)} %`;
 }
 
 function sourceName(source) {
   if (source === 'orpha') return 'Orphanet';
   if (source === 'omim') return 'OMIM';
+  if (source === 'decipher') return 'DECIPHER';
   return source;
 }
 
@@ -334,11 +382,30 @@ function onDrawerToggle(value) {
   if (!value) store.close();
 }
 
-watch(
-  () => props.phenotypes,
-  (value) => store.scheduleRank(value),
-  { deep: true }
-);
+function onWindowKeydown(event) {
+  if (event.key === 'Escape' && store.panelOpen) {
+    event.stopPropagation();
+    store.close();
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydown, true);
+  nextTick(() => {
+    closeBtn.value?.$el?.focus?.();
+  });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true);
+});
+
+// Watch only the ranking-relevant profile signature so non-scoring changes
+// (such as merging clinical modifiers onto an existing phenotype) do not
+// trigger redundant API calls or collapse the expanded row.
+const profileSignature = computed(() => JSON.stringify(buildProfile(props.phenotypes).terms));
+
+watch(profileSignature, () => store.scheduleRank(props.phenotypes));
 watch(
   () => store.result,
   () => {

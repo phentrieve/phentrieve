@@ -591,7 +591,7 @@
     "close": "Fermer les maladies similaires",
     "notice": {
       "title": "Usage de recherche uniquement, pas un diagnostic.",
-      "body": "La liste indique dans quelle mesure le profil correspond aux annotations de maladies curées. Ce n'est pas une probabilité et cela ne remplace pas l'évaluation clinique."
+      "body": "La liste indique dans quelle mesure le profil correspond aux annotations de maladies validées. Ce n'est pas une probabilité et cela ne remplace pas l'évaluation clinique."
     },
     "levelLabel": "Classer par",
     "level": {
@@ -627,6 +627,7 @@
     "sources": "Annotations :",
     "bestDisease": "meilleure maladie : {label}",
     "genes": "Gène {genes}",
+    "retry": "Réessayer",
     "errors": {
       "unavailable": "L'index des maladies n'est pas disponible sur ce serveur.",
       "disabled": "Le classement des maladies n'est pas activé sur ce serveur.",

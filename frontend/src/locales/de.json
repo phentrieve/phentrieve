@@ -610,10 +610,10 @@
     "empty": "Sammeln Sie mindestens einen vorhandenen Phänotyp, um ähnliche Erkrankungen zu sehen.",
     "conflictChip": "{count} Konflikt(e)",
     "scoreLabel": "Score {score}",
-    "why": "Warum diese Erkrankung",
+    "why": "Warum dieser Treffer",
     "table": {
       "profile": "Profil-Term",
-      "disease": "passt zu Krankheits-Term",
+      "disease": "Passt zu Krankheits-Term",
       "frequency": "Häufigkeit"
     },
     "relation": {
@@ -627,6 +627,7 @@
     "sources": "Annotationen:",
     "bestDisease": "beste Erkrankung: {label}",
     "genes": "Gen {genes}",
+    "retry": "Erneut versuchen",
     "errors": {
       "unavailable": "Der Krankheitsindex ist auf diesem Server nicht verfügbar.",
       "disabled": "Das Ranking von Erkrankungen ist auf diesem Server nicht aktiviert.",

@@ -250,11 +250,13 @@
         <div class="pa-3">
           <v-btn
             v-if="rankingAvailable"
+            ref="rankDiseasesBtn"
             block
             color="secondary"
             class="mb-2"
             prepend-icon="mdi-database-search-outline"
             :disabled="presentIds.length === 0"
+            :aria-expanded="Boolean(rankingStore?.panelOpen)"
             data-testid="collection-rank-diseases"
             @click="openRanking"
           >
@@ -326,14 +328,14 @@
 </template>
 
 <script>
-import ModifierChips from './ModifierChips.vue';
-
 /**
  * PhenotypeCollectionPanel - Case workspace drawer holding the collected HPO terms.
  * Extracted from QueryInterface.vue to reduce component complexity.
  */
 import { getActivePinia } from 'pinia';
 import DiseaseRankingPanel from './DiseaseRankingPanel.vue';
+import ModifierChips from './ModifierChips.vue';
+import { isExcluded } from '../composables/usePhenotypeCollection';
 import { useDiseaseRankingStore } from '../stores/diseaseRanking';
 
 export default {
@@ -364,7 +366,8 @@ export default {
   ],
   setup() {
     // Disease ranking is optional (server flag); without an active Pinia it stays hidden.
-    return { rankingStore: getActivePinia() ? useDiseaseRankingStore() : null };
+    const pinia = getActivePinia();
+    return { rankingStore: pinia ? useDiseaseRankingStore(pinia) : null };
   },
   data() {
     return { confirmingClear: false, copiedCount: 0 };
@@ -375,9 +378,7 @@ export default {
     },
     // Excluded terms are left out: a bare ID list is read as "present" by tools like Exomiser
     presentIds() {
-      return this.phenotypes
-        .filter((p) => this.normalizeAssertionStatus(p.assertion_status) !== 'negated')
-        .map((p) => p.hpo_id);
+      return this.phenotypes.filter((p) => !isExcluded(p.assertion_status)).map((p) => p.hpo_id);
     },
   },
   watch: {
@@ -387,6 +388,13 @@ export default {
       handler(open) {
         if (open) this.rankingStore?.checkAvailability();
       },
+    },
+    'rankingStore.panelOpen'(open, wasOpen) {
+      if (wasOpen && !open) {
+        this.$nextTick(() => {
+          this.$refs.rankDiseasesBtn?.$el?.focus?.();
+        });
+      }
     },
   },
   methods: {
@@ -398,6 +406,7 @@ export default {
       clearTimeout(this.clearTimer);
       if (this.confirmingClear) {
         this.confirmingClear = false;
+        this.rankingStore?.clearCase();
         this.$emit('clear');
         return;
       }
