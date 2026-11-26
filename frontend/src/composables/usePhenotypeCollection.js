@@ -152,8 +152,7 @@ export function usePhenotypeCollection() {
         );
         const incomingStatus = normalizedPhenotype.assertion_status || queryAssertionStatus;
         const polarityMatches =
-          !incomingStatus ||
-          isExcluded(existing?.assertion_status) === isExcluded(incomingStatus);
+          !incomingStatus || isExcluded(existing?.assertion_status) === isExcluded(incomingStatus);
         if (existing && polarityMatches) {
           const merged = normalizeModifiers([...(existing.modifiers || []), ...modifiers]);
           if (merged.length > 0) {
