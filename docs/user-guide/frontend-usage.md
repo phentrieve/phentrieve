@@ -26,6 +26,13 @@ phentrieve text process --extraction-backend llm note.txt
 The results view keeps the same overall structure as standard extraction and
 adds LLM metadata so you can verify which model and mode produced the output.
 
+## Similar diseases (research use)
+
+When the server has disease ranking enabled, the case workspace shows a **Similar
+diseases** action. It ranks rare diseases or genes for the collected phenotypes and
+explains each row. The feature is off by default and is for research use only; see
+[Disease Ranking](disease-ranking.md).
+
 ## Example API Environment for Frontend Validation
 
 ```bash

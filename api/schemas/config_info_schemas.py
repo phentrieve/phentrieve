@@ -7,6 +7,8 @@ endpoint responses, ensuring consistent and well-documented API contracts.
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.disease_ranking_schemas import DiseaseRankingStatusAPI
+
 
 class ModelInfo(BaseModel):
     """Information about a single model available in Phentrieve."""
@@ -187,4 +189,11 @@ class PhentrieveConfigInfoResponseAPI(BaseModel):
         description=(
             "Read-only public LLM configuration. Clients cannot mutate these values."
         )
+    )
+    disease_ranking: DiseaseRankingStatusAPI = Field(
+        default_factory=DiseaseRankingStatusAPI,
+        description=(
+            "Disease ranking feature status (research use). The frontend shows the "
+            "feature only when enabled and index_ready are both true."
+        ),
     )

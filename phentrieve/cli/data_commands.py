@@ -90,6 +90,117 @@ def prepare_hpo_data(
         raise typer.Exit(code=1)
 
 
+@app.command("prepare-diseases")
+def prepare_disease_index(
+    debug: Annotated[
+        bool, typer.Option("--debug", help="Enable debug logging")
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Re-download the sources and rebuild the index"),
+    ] = False,
+    data_dir: Annotated[
+        str | None,
+        typer.Option("--data-dir", help="Custom directory for HPO data storage"),
+    ] = None,
+    hpo_version: Annotated[
+        str | None,
+        typer.Option(
+            "--hpo-version",
+            help="HPO release for the annotation files (e.g. 'v2026-09-01'). Default: latest.",
+        ),
+    ] = None,
+    mondo_version: Annotated[
+        str | None,
+        typer.Option(
+            "--mondo-version",
+            help="MONDO release for OMIM-ORPHA equivalence (e.g. 'v2026-09-01'). Default: latest.",
+        ),
+    ] = None,
+    no_orpha_merge: Annotated[
+        bool,
+        typer.Option(
+            "--no-orpha-merge",
+            help="Do not merge ORPHA annotations into OMIM diseases (reference scoring only).",
+        ),
+    ] = False,
+):
+    """Build the local disease index used for disease and gene ranking.
+
+    Downloads phenotype.hpoa, genes_to_phenotype.txt and hp.json from an HPO
+    release plus mondo.obo from a MONDO release, records their SHA-256, and
+    writes <data-dir>/disease_index/. Research use only.
+    """
+    from phentrieve.config import HPO_BASE_URL
+    from phentrieve.data_processing.hpo_parser import resolve_hpo_version
+    from phentrieve.disease_matching.index import (
+        default_index_dir,
+        index_is_valid,
+        read_index_info,
+    )
+    from phentrieve.disease_matching.index_builder import (
+        build_index,
+        fetch_sources,
+        resolve_mondo_version,
+    )
+    from phentrieve.utils import setup_logging_cli
+
+    setup_logging_cli(debug=debug)
+    index_dir = default_index_dir(data_dir)
+    # An incomplete or damaged index (interrupted save) is rebuilt without --force.
+    if index_is_valid(index_dir) and not force:
+        built = read_index_info(index_dir) or {}
+        stale = [
+            f"{name} {built.get(key)} -> {wanted}"
+            for name, key, wanted in (
+                ("HPO", "hpo_version", hpo_version),
+                ("MONDO", "mondo_version", mondo_version),
+            )
+            # "latest" is not a pin: keep the existing index
+            if wanted and wanted.lower() != "latest" and built.get(key) != wanted
+        ]
+        if not stale:
+            typer.echo(
+                f"Disease index already present in {index_dir} (use --force to rebuild)."
+            )
+            return
+        typer.echo(f"Disease index versions differ ({', '.join(stale)}); rebuilding.")
+    try:
+        hpo_tag = resolve_hpo_version(hpo_version)
+        mondo_tag = resolve_mondo_version(mondo_version)
+        typer.echo(f"Fetching sources: HPO {hpo_tag}, MONDO {mondo_tag}...")
+        sources = fetch_sources(
+            index_dir / "sources", hpo_tag, mondo_tag, HPO_BASE_URL, force=force
+        )
+        files = sources["files"]
+        typer.echo("Building disease index...")
+        index = build_index(
+            Path(files["hp.json"]["path"]),
+            Path(files["phenotype.hpoa"]["path"]),
+            Path(files["genes_to_phenotype.txt"]["path"]),
+            Path(files["mondo.obo"]["path"]),
+            merge_orpha=not no_orpha_merge,
+            meta={
+                "hpo_version": hpo_tag,
+                "mondo_version": mondo_tag,
+                "sources": {
+                    name: {"url": f["url"], "sha256": f["sha256"]}
+                    for name, f in files.items()
+                },
+            },
+        )
+        index.save(index_dir)
+    except Exception as error:  # noqa: BLE001 - report any failure as a CLI error
+        typer.secho(f"Disease index preparation failed: {error}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from error
+    meta = index.meta
+    typer.secho(
+        f"Disease index ready in {index_dir}: {meta['n_diseases']} diseases, "
+        f"{meta['n_genes']} genes, {meta['n_omim_enriched']} OMIM diseases enriched from ORPHA.",
+        fg=typer.colors.GREEN,
+    )
+
+
 @app.command("download")
 def download_bundle(
     model: Annotated[

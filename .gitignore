@@ -27,6 +27,10 @@ data/hf_cache/
 data/indexes/
 data/hpo_terms/
 data/hpo_core_data/
+data/disease_index/
+# Versioned HPO/MONDO source downloads used to build the disease index
+data/hpo-v*/
+data/mondo-v*/
 # Runtime app state (e.g. LLM quota SQLite db, generated at runtime)
 data/app/
 

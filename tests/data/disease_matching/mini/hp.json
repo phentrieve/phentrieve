@@ -1,0 +1,52 @@
+{
+  "graphs": [
+    {
+      "id": "http://purl.obolibrary.org/obo/hp.json",
+      "nodes": [
+        {"id": "http://purl.obolibrary.org/obo/HP_0000001", "lbl": "All", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000118", "lbl": "Phenotypic abnormality", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000005", "lbl": "Mode of inheritance", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000006", "lbl": "Autosomal dominant inheritance", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000002", "lbl": "Organ A anomaly", "type": "CLASS"},
+        {
+          "id": "http://purl.obolibrary.org/obo/HP_0000003",
+          "lbl": "Finding A1",
+          "type": "CLASS",
+          "meta": {
+            "basicPropertyValues": [
+              {"pred": "http://www.geneontology.org/formats/oboInOwl#hasAlternativeId", "val": "HP:0000097"}
+            ]
+          }
+        },
+        {"id": "http://purl.obolibrary.org/obo/HP_0000004", "lbl": "Finding A2", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000010", "lbl": "Organ B anomaly", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000011", "lbl": "Finding B1", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000012", "lbl": "Finding B1a", "type": "CLASS"},
+        {"id": "http://purl.obolibrary.org/obo/HP_0000020", "lbl": "Finding C", "type": "CLASS"},
+        {
+          "id": "http://purl.obolibrary.org/obo/HP_0000099",
+          "lbl": "obsolete Finding A1 old",
+          "type": "CLASS",
+          "meta": {
+            "deprecated": true,
+            "basicPropertyValues": [
+              {"pred": "http://purl.obolibrary.org/obo/IAO_0100001", "val": "http://purl.obolibrary.org/obo/HP_0000003"}
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000118", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000001"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000005", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000001"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000006", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000005"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000002", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000118"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000003", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000002"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000004", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000002"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000010", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000118"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000011", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000010"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000012", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000011"},
+        {"sub": "http://purl.obolibrary.org/obo/HP_0000020", "pred": "is_a", "obj": "http://purl.obolibrary.org/obo/HP_0000118"}
+      ]
+    }
+  ]
+}

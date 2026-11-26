@@ -583,5 +583,59 @@
       "missingToken": "Il manque le jeton à ce lien de réinitialisation.",
       "failed": "Ce lien de réinitialisation est invalide ou a expiré."
     }
+  },
+  "diseaseRanking": {
+    "open": "Maladies similaires",
+    "title": "Maladies similaires",
+    "subtitle": "Similarité phénotypique avec le profil recueilli · brute, non calibrée",
+    "close": "Fermer les maladies similaires",
+    "notice": {
+      "title": "Usage de recherche uniquement, pas un diagnostic.",
+      "body": "La liste indique dans quelle mesure le profil correspond aux annotations de maladies validées. Ce n'est pas une probabilité et cela ne remplace pas l'évaluation clinique."
+    },
+    "levelLabel": "Classer par",
+    "level": {
+      "disease": "Maladies",
+      "gene": "Gènes"
+    },
+    "includeUncertain": "Inclure les termes incertains ({count})",
+    "status": {
+      "scored": "Évalués : {count} terme(s)",
+      "excluded": "{count} exclu(s) · compte uniquement comme conflit",
+      "notScored": "{count} non évalué(s)",
+      "auto": "Mise à jour automatique",
+      "dropped": "{count} terme(s) non envoyé(s) (limite {max})"
+    },
+    "loading": "Classement des maladies",
+    "empty": "Recueillez au moins un phénotype présent pour voir des maladies similaires.",
+    "conflictChip": "{count} conflit(s)",
+    "scoreLabel": "Score {score}",
+    "why": "Pourquoi cette correspondance",
+    "table": {
+      "profile": "Terme du profil",
+      "disease": "Correspond au terme de la maladie",
+      "frequency": "Fréquence"
+    },
+    "relation": {
+      "exact": "identique",
+      "broader": "terme plus général",
+      "narrower": "plus spécifique",
+      "related": "apparenté"
+    },
+    "conflict": "Conflit : {profile} est exclu dans le profil, mais la maladie est annotée avec {disease}. Le score n'est pas modifié.",
+    "unexplained": "Non expliqué :",
+    "sources": "Annotations :",
+    "bestDisease": "meilleure maladie : {label}",
+    "genes": "Gène {genes}",
+    "retry": "Réessayer",
+    "errors": {
+      "unavailable": "L'index des maladies n'est pas disponible sur ce serveur.",
+      "disabled": "Le classement des maladies n'est pas activé sur ce serveur.",
+      "generic": "Le classement n'a pas pu être calculé. Veuillez réessayer."
+    },
+    "footer": {
+      "summary": "Top {shown} sur {total} · HPO {hpo} · MONDO {mondo}",
+      "attribution": "Sources : Human Phenotype Ontology · Orphanet (CC BY 4.0, modifié : fusionné avec les annotations OMIM) · MONDO (CC BY 4.0) · OMIM"
+    }
   }
 }

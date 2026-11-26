@@ -173,6 +173,26 @@ class PhentrieveService {
     }
   }
 
+  /**
+   * Ranks diseases or genes for a profile of HPO terms (research use, raw scores).
+   * @param {{terms: Array<{hpo_id: string, assertion: string}>, level?: string,
+   *   top_k?: number, include_uncertain?: boolean}} payload
+   * @param {{signal?: AbortSignal}} [options]
+   * @returns {Promise<Object>} Data matching DiseaseRankingResponseAPI
+   */
+  async rankDiseases(payload, { signal } = {}) {
+    try {
+      const response = await axios.post(
+        `${API_URL}/diseases/rank`,
+        payload,
+        buildRequestConfig({ signal, timeout: QUERY_TIMEOUT_MS })
+      );
+      return response.data;
+    } catch (error) {
+      throw this._createStandardizedError(error, 'ranking diseases');
+    }
+  }
+
   _normalizeTextProcessPayload(textProcessingData) {
     const extractionBackend =
       textProcessingData.extraction_backend ?? textProcessingData.extractionBackend ?? 'standard';

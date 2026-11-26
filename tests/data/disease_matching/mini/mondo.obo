@@ -1,0 +1,21 @@
+format-version: 1.2
+data-version: releases/2026-09-01
+
+[Term]
+id: MONDO:0000001
+name: disease one
+xref: OMIM:100001 {source="MONDO:equivalentTo"}
+xref: Orphanet:900001 {source="MONDO:equivalentTo"}
+
+[Term]
+id: MONDO:0000002
+name: obsolete disease two
+is_obsolete: true
+xref: OMIM:100002 {source="MONDO:equivalentTo"}
+xref: Orphanet:900002 {source="MONDO:equivalentTo"}
+
+[Term]
+id: MONDO:0000003
+name: related only
+xref: OMIM:100002 {source="MONDO:relatedTo"}
+xref: Orphanet:900002 {source="MONDO:equivalentTo"}

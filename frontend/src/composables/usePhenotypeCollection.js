@@ -16,7 +16,7 @@ const EXCLUDED_ASSERTIONS = new Set([
   'denied',
   'normal',
 ]);
-const isExcluded = (a) =>
+export const isExcluded = (a) =>
   EXCLUDED_ASSERTIONS.has(
     String(a ?? '')
       .trim()
@@ -25,7 +25,7 @@ const isExcluded = (a) =>
 // Mirrors the Python uncertain set: a hedged finding is neither observed nor
 // excluded, so it is left out of the Phenopacket (#399).
 const UNCERTAIN_ASSERTIONS = new Set(['uncertain', 'possible', 'suspected', 'probable']);
-const isUncertain = (a) =>
+export const isUncertain = (a) =>
   UNCERTAIN_ASSERTIONS.has(
     String(a ?? '')
       .trim()

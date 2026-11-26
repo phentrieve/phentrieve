@@ -245,6 +245,47 @@ verify_data() {
     return 0
 }
 
+# Build the disease index when disease ranking is enabled and the index is missing.
+# Non-fatal: without an index the API starts and the ranking endpoint returns 503.
+# Pin the inputs with PHENTRIEVE_DISEASE_HPO_VERSION / PHENTRIEVE_DISEASE_MONDO_VERSION.
+prepare_disease_index() {
+    local run_as=("$@")
+    local enabled_raw
+    enabled_raw="$(printf '%s' "${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    # Same truthy values as _env_bool in api/config.py (1/true/yes/on, any case)
+    case "$enabled_raw" in
+        1|true|yes|on) ;;
+        *) return 0 ;;
+    esac
+    if [ -n "${PHENTRIEVE_DISEASE_INDEX_DIR:-}" ]; then
+        log_info "Disease ranking uses PHENTRIEVE_DISEASE_INDEX_DIR - skipping index build"
+        return 0
+    fi
+    local disease_data_dir="${PHENTRIEVE_DATA_DIR:-$DATA_DIR}"
+    # With pinned versions the CLI compares them with the existing index and rebuilds
+    # on a mismatch; without pins an existing index is kept (the CLI verifies checksums
+    # and rebuilds if damaged).
+    if [ -f "$disease_data_dir/disease_index/disease_index.npz" ] \
+        && [ -f "$disease_data_dir/disease_index/disease_index.json" ] \
+        && [ -f "$disease_data_dir/disease_index/disease_index.info.json" ] \
+        && [ -z "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ] \
+        && [ -z "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
+        log_info "Disease index found: $disease_data_dir/disease_index"
+        return 0
+    fi
+    log_info "Disease ranking enabled - preparing disease index in $disease_data_dir/disease_index..."
+    local args=(-m phentrieve data prepare-diseases --data-dir="$disease_data_dir")
+    if [ -n "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ]; then
+        args+=(--hpo-version="$PHENTRIEVE_DISEASE_HPO_VERSION")
+    fi
+    if [ -n "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
+        args+=(--mondo-version="$PHENTRIEVE_DISEASE_MONDO_VERSION")
+    fi
+    if ! "${run_as[@]}" python "${args[@]}"; then
+        log_warn "Disease index build failed - disease ranking will return 503"
+    fi
+}
+
 # Main entrypoint logic
 main() {
     log_info "Starting Phentrieve API entrypoint..."
@@ -285,6 +326,8 @@ main() {
             exit 1
         fi
 
+        prepare_disease_index gosu phentrieve
+
         log_info "Dropping to phentrieve user (UID ${PHENTRIEVE_UID})..."
 
         # Execute the command as the phentrieve user using gosu
@@ -308,6 +351,8 @@ main() {
             log_error "Data verification failed - exiting"
             exit 1
         fi
+
+        prepare_disease_index
 
         # Execute the command directly
         exec "$@"

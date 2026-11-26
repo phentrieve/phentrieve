@@ -249,6 +249,20 @@
         <v-divider />
         <div class="pa-3">
           <v-btn
+            v-if="rankingAvailable"
+            ref="rankDiseasesBtn"
+            block
+            color="secondary"
+            class="mb-2"
+            prepend-icon="mdi-database-search-outline"
+            :disabled="presentIds.length === 0"
+            :aria-expanded="Boolean(rankingStore?.panelOpen)"
+            data-testid="collection-rank-diseases"
+            @click="openRanking"
+          >
+            {{ $t('diseaseRanking.open') }}
+          </v-btn>
+          <v-btn
             block
             color="primary"
             class="mb-2"
@@ -304,19 +318,30 @@
         </div>
       </template>
     </v-navigation-drawer>
+    <!-- Rendered only while open: a closed drawer is only translated by its own width and
+         would sit over the case workspace (stacked beside it), blocking it (#557 review). -->
+    <DiseaseRankingPanel
+      v-if="rankingAvailable && rankingStore.panelOpen"
+      :phenotypes="phenotypes"
+    />
   </div>
 </template>
 
 <script>
-import ModifierChips from './ModifierChips.vue';
-
 /**
  * PhenotypeCollectionPanel - Case workspace drawer holding the collected HPO terms.
  * Extracted from QueryInterface.vue to reduce component complexity.
  */
+import { getActivePinia } from 'pinia';
+import DiseaseRankingPanel from './DiseaseRankingPanel.vue';
+import ModifierChips from './ModifierChips.vue';
+import { isExcluded } from '../composables/usePhenotypeCollection';
+import { useDiseaseRankingStore } from '../stores/diseaseRanking';
+
 export default {
   name: 'PhenotypeCollectionPanel',
   components: {
+    DiseaseRankingPanel,
     ModifierChips,
   },
   props: {
@@ -339,23 +364,49 @@ export default {
     'update:sex',
     'update:dateOfBirth',
   ],
+  setup() {
+    // Disease ranking is optional (server flag); without an active Pinia it stays hidden.
+    const pinia = getActivePinia();
+    return { rankingStore: pinia ? useDiseaseRankingStore(pinia) : null };
+  },
   data() {
     return { confirmingClear: false, copiedCount: 0 };
   },
   computed: {
+    rankingAvailable() {
+      return Boolean(this.rankingStore?.available);
+    },
     // Excluded terms are left out: a bare ID list is read as "present" by tools like Exomiser
     presentIds() {
-      return this.phenotypes
-        .filter((p) => this.normalizeAssertionStatus(p.assertion_status) !== 'negated')
-        .map((p) => p.hpo_id);
+      return this.phenotypes.filter((p) => !isExcluded(p.assertion_status)).map((p) => p.hpo_id);
+    },
+  },
+  watch: {
+    // Ask the server about disease ranking only once the workspace is opened
+    panelOpen: {
+      immediate: true,
+      handler(open) {
+        if (open) this.rankingStore?.checkAvailability();
+      },
+    },
+    'rankingStore.panelOpen'(open, wasOpen) {
+      if (wasOpen && !open) {
+        this.$nextTick(() => {
+          this.$refs.rankDiseasesBtn?.$el?.focus?.();
+        });
+      }
     },
   },
   methods: {
+    openRanking() {
+      this.rankingStore?.open(this.phenotypes);
+    },
     // Two-step clear: the first click arms, a second click within 4s clears
     onClear() {
       clearTimeout(this.clearTimer);
       if (this.confirmingClear) {
         this.confirmingClear = false;
+        this.rankingStore?.clearCase();
         this.$emit('clear');
         return;
       }
