@@ -218,3 +218,19 @@ def test_orpha_disease_annotations_are_labelled_orpha(mini_index: DiseaseIndex) 
     assert {m.source for m in two.explanation.matches} == {"orpha"}
     one = next(d for d in result.diseases if d.disease_id == "OMIM:100001")
     assert {m.source for m in one.explanation.matches} == {"omim"}
+
+
+def test_contradictory_duplicate_terms_reconcile_without_conflict(
+    mini_index: DiseaseIndex,
+) -> None:
+    result = rank(
+        mini_index,
+        _p(
+            ("HP:0000011", "negated"),
+            ("HP:0000011", "affirmed"),
+            ("HP:0000011", "uncertain"),
+        ),
+    )
+    assert result.scored == ["HP:0000011"]
+    assert result.excluded == []
+    assert result.not_scored == []

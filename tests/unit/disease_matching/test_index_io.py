@@ -120,3 +120,22 @@ def test_index_is_valid_detects_incomplete_and_mismatched(tmp_path: Path) -> Non
 def test_save_leaves_no_part_files(tmp_path: Path) -> None:
     build_mini().save(tmp_path)
     assert not list(tmp_path.glob("*.part"))
+
+
+def test_index_is_valid_rejects_corrupt_meta_json(tmp_path: Path) -> None:
+    from phentrieve.disease_matching.index import index_is_valid
+
+    build_mini().save(tmp_path)
+    assert index_is_valid(tmp_path)
+    (tmp_path / INDEX_META_FILENAME).write_text("{corrupt", encoding="utf-8")
+    assert not index_is_valid(tmp_path)
+
+
+def test_fetch_sources_rejects_path_traversal_tags(tmp_path: Path) -> None:
+    from phentrieve.disease_matching.index_builder import fetch_sources
+
+    for bad_tag in ("../evil", "v1/../../etc", "/abs/path", "v1?foo=bar"):
+        with pytest.raises(ValueError, match="Invalid"):
+            fetch_sources(tmp_path, bad_tag, "v2026-09-01", "https://example.org/hpo")
+        with pytest.raises(ValueError, match="Invalid"):
+            fetch_sources(tmp_path, "v2026-09-01", bad_tag, "https://example.org/hpo")

@@ -114,44 +114,54 @@ class DiseaseIndex:
         index_dir.mkdir(parents=True, exist_ok=True)
         arrays_path = index_dir / INDEX_ARRAYS_FILENAME
         tmp = arrays_path.with_name(arrays_path.name + ".part")
-        with tmp.open("wb") as fh:
-            np.savez_compressed(
-                fh,
-                ic=self.ic,
-                self_ic=self.self_ic,
-                anc_ptr=self.anc_ptr,
-                anc_idx=self.anc_idx,
-                dis_ptr=self.dis_ptr,
-                ann_term=self.ann_term,
-                ann_f=self.ann_f,
-                ann_source=self.ann_source,
-            )
-        meta = dict(self.meta)
-        meta["format_version"] = INDEX_FORMAT_VERSION
-        meta["arrays_sha256"] = _sha256(tmp)
-        payload = {
-            "meta": meta,
-            "term_ids": self.term_ids,
-            "term_labels": self.term_labels,
-            "aliases": self.aliases,
-            "disease_ids": self.disease_ids,
-            "disease_labels": self.disease_labels,
-            "gene_diseases": self.gene_diseases,
-            "twins": {str(k): v for k, v in self.twins.items()},
-            "other_terms": self.other_terms,
-        }
-        for path, text in (
-            (index_dir / INDEX_META_FILENAME, json.dumps(payload, ensure_ascii=False)),
-            (
-                index_dir / INDEX_INFO_FILENAME,
-                json.dumps(meta, ensure_ascii=False, indent=1),
-            ),
-        ):
-            part = path.with_name(path.name + ".part")
-            part.write_text(text, encoding="utf-8")
-            part.replace(path)
-        tmp.replace(arrays_path)
-        self.meta = meta
+        part_files: list[Path] = [tmp]
+        try:
+            with tmp.open("wb") as fh:
+                np.savez_compressed(
+                    fh,
+                    ic=self.ic,
+                    self_ic=self.self_ic,
+                    anc_ptr=self.anc_ptr,
+                    anc_idx=self.anc_idx,
+                    dis_ptr=self.dis_ptr,
+                    ann_term=self.ann_term,
+                    ann_f=self.ann_f,
+                    ann_source=self.ann_source,
+                )
+            meta = dict(self.meta)
+            meta["format_version"] = INDEX_FORMAT_VERSION
+            meta["arrays_sha256"] = _sha256(tmp)
+            payload = {
+                "meta": meta,
+                "term_ids": self.term_ids,
+                "term_labels": self.term_labels,
+                "aliases": self.aliases,
+                "disease_ids": self.disease_ids,
+                "disease_labels": self.disease_labels,
+                "gene_diseases": self.gene_diseases,
+                "twins": {str(k): v for k, v in self.twins.items()},
+                "other_terms": self.other_terms,
+            }
+            for path, text in (
+                (
+                    index_dir / INDEX_META_FILENAME,
+                    json.dumps(payload, ensure_ascii=False),
+                ),
+                (
+                    index_dir / INDEX_INFO_FILENAME,
+                    json.dumps(meta, ensure_ascii=False, indent=1),
+                ),
+            ):
+                part = path.with_name(path.name + ".part")
+                part_files.append(part)
+                part.write_text(text, encoding="utf-8")
+                part.replace(path)
+            tmp.replace(arrays_path)
+            self.meta = meta
+        except BaseException:
+            for part in part_files:
+                part.unlink(missing_ok=True)
+            raise
 
 
 def _sha256(path: Path) -> str:
@@ -176,13 +186,30 @@ def index_exists(index_dir: Path) -> bool:
 
 
 def index_is_valid(index_dir: Path) -> bool:
-    """Complete, supported and matching its checksum (hashes the ~1 MB arrays file)."""
+    """Complete, supported and matching its checksum (verifies info, json, and arrays)."""
     info = read_index_info(index_dir)
-    return bool(
-        info
-        and info.get("format_version") == INDEX_FORMAT_VERSION
-        and info.get("arrays_sha256") == _sha256(index_dir / INDEX_ARRAYS_FILENAME)
-    )
+    if not info or info.get("format_version") != INDEX_FORMAT_VERSION:
+        return False
+    expected_sha = info.get("arrays_sha256")
+    if not isinstance(expected_sha, str) or not expected_sha:
+        return False
+    try:
+        payload = json.loads(
+            (index_dir / INDEX_META_FILENAME).read_text(encoding="utf-8")
+        )
+        if not isinstance(payload, dict):
+            return False
+        meta = payload.get("meta")
+        if (
+            not isinstance(meta, dict)
+            or meta.get("format_version") != INDEX_FORMAT_VERSION
+            or meta.get("arrays_sha256") != expected_sha
+        ):
+            return False
+        actual_sha = _sha256(index_dir / INDEX_ARRAYS_FILENAME)
+    except (OSError, ValueError):
+        return False
+    return actual_sha == expected_sha
 
 
 def read_index_info(index_dir: Path) -> dict[str, Any] | None:

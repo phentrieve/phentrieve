@@ -183,23 +183,22 @@ class _Explainer:
             (matches if item.match >= WEAK_MATCH else unexplained).append(item)
         matches.sort(key=lambda m: -m.match)
         conflicts: list[Conflict] = []
-        for e in self.excluded:
-            hits = [
-                i
-                for i, t in enumerate(terms.tolist())
-                if e in set(ix.ancestors(t).tolist())
-            ]
-            if hits:
-                i = max(hits, key=lambda h: float(freqs[h]))
-                conflicts.append(
-                    Conflict(
-                        profile_id=ix.term_ids[e],
-                        profile_label=self._label(e),
-                        disease_term_id=ix.term_ids[int(terms[i])],
-                        disease_term_label=self._label(int(terms[i])),
-                        frequency=round(float(freqs[i]), 4),
+        if self.excluded:
+            term_list = terms.tolist()
+            term_ancestors = [set(ix.ancestors(t).tolist()) for t in term_list]
+            for e in self.excluded:
+                hits = [i for i, anc in enumerate(term_ancestors) if e in anc]
+                if hits:
+                    i = max(hits, key=lambda h: float(freqs[h]))
+                    conflicts.append(
+                        Conflict(
+                            profile_id=ix.term_ids[e],
+                            profile_label=self._label(e),
+                            disease_term_id=ix.term_ids[int(terms[i])],
+                            disease_term_label=self._label(int(terms[i])),
+                            frequency=round(float(freqs[i]), 4),
+                        )
                     )
-                )
         flags = int(np.bitwise_or.reduce(sources)) if len(sources) else 0
         names = []
         if flags & SOURCE_OWN:
@@ -217,30 +216,58 @@ class _Explainer:
 def _resolve_profile(
     index: DiseaseIndex, terms: list[ProfileTerm], include_uncertain: bool
 ) -> tuple[dict[int, float], list[int], list[NotScored]]:
+    # Reconcile duplicate/aliased terms with explicit precedence:
+    # present > excluded > uncertain.
     present: dict[int, float] = {}
-    excluded: list[int] = []
-    not_scored: list[NotScored] = []
+    excluded_set: set[int] = set()
+    excluded_order: list[int] = []
+    uncertain_not_scored: dict[int, str] = {}
+    other_not_scored: list[NotScored] = []
+    seen_other: set[tuple[str, str]] = set()
+
     for term in terms:
         assertion = canonicalize_assertion(term.assertion)
         hpo_id = term.hpo_id.strip()
         t = index.resolve_term(hpo_id)
         if t is None:
-            if hpo_id in index.other_term_set:
-                not_scored.append(NotScored(term.hpo_id, "not_phenotype"))
-            else:
-                not_scored.append(NotScored(term.hpo_id, "unknown_term"))
+            reason: Literal["not_phenotype", "unknown_term"] = (
+                "not_phenotype" if hpo_id in index.other_term_set else "unknown_term"
+            )
+            key = (hpo_id, reason)
+            if key not in seen_other:
+                seen_other.add(key)
+                other_not_scored.append(NotScored(hpo_id, reason))
             continue
         if index.self_ic[t] <= 0:
-            not_scored.append(NotScored(term.hpo_id, "not_phenotype"))
+            key = (hpo_id, "not_phenotype")
+            if key not in seen_other:
+                seen_other.add(key)
+                other_not_scored.append(NotScored(hpo_id, "not_phenotype"))
             continue
         if assertion in (NEGATED, NORMAL):
-            if t not in excluded:
-                excluded.append(t)
+            if t not in present and t not in excluded_set:
+                excluded_set.add(t)
+                excluded_order.append(t)
+                uncertain_not_scored.pop(t, None)
             continue
         if assertion == UNCERTAIN and not include_uncertain:
-            not_scored.append(NotScored(term.hpo_id, "uncertain"))
+            if (
+                t not in present
+                and t not in excluded_set
+                and t not in uncertain_not_scored
+            ):
+                uncertain_not_scored[t] = hpo_id
             continue
         present[t] = 1.0
+        if t in excluded_set:
+            excluded_set.remove(t)
+        uncertain_not_scored.pop(t, None)
+
+    excluded = [t for t in excluded_order if t in excluded_set]
+    not_scored = [
+        *other_not_scored,
+        *(NotScored(hpo_id, "uncertain") for hpo_id in uncertain_not_scored.values()),
+    ]
     return present, excluded, not_scored
 
 

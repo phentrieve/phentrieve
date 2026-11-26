@@ -250,8 +250,10 @@ verify_data() {
 # Pin the inputs with PHENTRIEVE_DISEASE_HPO_VERSION / PHENTRIEVE_DISEASE_MONDO_VERSION.
 prepare_disease_index() {
     local run_as=("$@")
+    local enabled_raw
+    enabled_raw="$(printf '%s' "${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
     # Same truthy values as _env_bool in api/config.py (1/true/yes/on, any case)
-    case "$(printf '%s' "${PHENTRIEVE_DISEASE_RANKING_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+    case "$enabled_raw" in
         1|true|yes|on) ;;
         *) return 0 ;;
     esac
@@ -259,25 +261,25 @@ prepare_disease_index() {
         log_info "Disease ranking uses PHENTRIEVE_DISEASE_INDEX_DIR - skipping index build"
         return 0
     fi
+    local disease_data_dir="${PHENTRIEVE_DATA_DIR:-$DATA_DIR}"
     # With pinned versions the CLI compares them with the existing index and rebuilds
-    # on a mismatch; without pins an existing index is kept.
-    # Both files must exist; the CLI also verifies the checksum and rebuilds a
-    # damaged index, so any doubt is left to it.
-    if [ -f "$DATA_DIR/disease_index/disease_index.npz" ] \
-        && [ -f "$DATA_DIR/disease_index/disease_index.json" ] \
-        && [ -f "$DATA_DIR/disease_index/disease_index.info.json" ] \
+    # on a mismatch; without pins an existing index is kept (the CLI verifies checksums
+    # and rebuilds if damaged).
+    if [ -f "$disease_data_dir/disease_index/disease_index.npz" ] \
+        && [ -f "$disease_data_dir/disease_index/disease_index.json" ] \
+        && [ -f "$disease_data_dir/disease_index/disease_index.info.json" ] \
         && [ -z "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ] \
         && [ -z "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
-        log_info "Disease index found: $DATA_DIR/disease_index"
+        log_info "Disease index found: $disease_data_dir/disease_index"
         return 0
     fi
-    log_info "Disease ranking enabled - preparing disease index in $DATA_DIR/disease_index..."
-    local args=(-m phentrieve data prepare-diseases --data-dir "$DATA_DIR")
+    log_info "Disease ranking enabled - preparing disease index in $disease_data_dir/disease_index..."
+    local args=(-m phentrieve data prepare-diseases --data-dir="$disease_data_dir")
     if [ -n "${PHENTRIEVE_DISEASE_HPO_VERSION:-}" ]; then
-        args+=(--hpo-version "$PHENTRIEVE_DISEASE_HPO_VERSION")
+        args+=(--hpo-version="$PHENTRIEVE_DISEASE_HPO_VERSION")
     fi
     if [ -n "${PHENTRIEVE_DISEASE_MONDO_VERSION:-}" ]; then
-        args+=(--mondo-version "$PHENTRIEVE_DISEASE_MONDO_VERSION")
+        args+=(--mondo-version="$PHENTRIEVE_DISEASE_MONDO_VERSION")
     fi
     if ! "${run_as[@]}" python "${args[@]}"; then
         log_warn "Disease index build failed - disease ranking will return 503"

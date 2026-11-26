@@ -28,6 +28,7 @@ RETRY_AFTER_SECONDS = 60.0
 @dataclass
 class _IndexState:
     index: DiseaseIndex | None = None
+    loaded_path: Path | None = None
     failed_at: float | None = None
     error: IndexNotAvailableError | None = None
 
@@ -49,8 +50,10 @@ def disease_index_dir() -> Path:
     return default_index_dir(None)
 
 
-def _is_stale(index: DiseaseIndex, path: Path) -> bool:
-    """True when the index on disk was rebuilt since this one was loaded."""
+def _is_stale(index: DiseaseIndex, loaded_path: Path | None, path: Path) -> bool:
+    """True when the index dir changed or the index on disk was rebuilt."""
+    if loaded_path is not None and loaded_path != path:
+        return True
     info = read_index_info(path)
     return bool(info and info.get("arrays_sha256") != index.meta.get("arrays_sha256"))
 
@@ -61,16 +64,24 @@ def get_disease_index() -> DiseaseIndex:
     Raises IndexNotAvailableError when no usable index exists; after a failed load,
     further calls fail fast for RETRY_AFTER_SECONDS.
     """
-    path = disease_index_dir()
-    current = _state.index
-    if current is not None and not _is_stale(current, path):
+    try:
+        path = disease_index_dir()
+    except OSError as error:
+        raise IndexNotAvailableError(
+            f"Disease index directory is unavailable: {error}"
+        ) from error
+    with _lock:
+        current = _state.index
+        loaded_path = _state.loaded_path
+    if current is not None and not _is_stale(current, loaded_path, path):
         return current
     with _lock:
         current = _state.index
-        if current is not None and not _is_stale(current, path):
+        loaded_path = _state.loaded_path
+        if current is not None and not _is_stale(current, loaded_path, path):
             return current
         if _state.failure_is_recent() and _state.error is not None:
-            if current is not None:
+            if current is not None and loaded_path == path:
                 return current
             raise _state.error
         logger.info("Loading disease index from %s", path)
@@ -79,7 +90,7 @@ def get_disease_index() -> DiseaseIndex:
         except IndexNotAvailableError as error:
             _state.failed_at = time.monotonic()
             _state.error = error
-            if current is not None:
+            if current is not None and loaded_path == path:
                 # A rebuild is in progress or failed: keep serving the previous index.
                 logger.warning(
                     "Disease index reload failed, keeping the loaded one: %s", error
@@ -87,6 +98,7 @@ def get_disease_index() -> DiseaseIndex:
                 return current
             raise
         _state.index = loaded
+        _state.loaded_path = path
         _state.failed_at = None
         _state.error = None
         logger.info("Disease index loaded: %s diseases", loaded.n_diseases)
@@ -97,14 +109,23 @@ def disease_ranking_status() -> dict[str, Any]:
     """Feature status for config-info, without loading the index."""
     enabled = api_config.PHENTRIEVE_DISEASE_RANKING_ENABLED
     info: dict[str, Any] | None = None
+    with _lock:
+        cached_index = _state.index
+        cached_path = _state.loaded_path
+        recent_failure = _state.failure_is_recent()
     if enabled:
-        info = read_index_info(disease_index_dir())
-        if info is None and _state.index is not None:
-            info = _state.index.meta
+        try:
+            path = disease_index_dir()
+            info = read_index_info(path)
+            if info is None and cached_index is not None and cached_path == path:
+                info = cached_index.meta
+        except OSError as error:
+            logger.warning("Disease index directory unavailable for status: %s", error)
+            info = None
     ready = (
         info is not None
         and info.get("format_version") == INDEX_FORMAT_VERSION
-        and (_state.index is not None or not _state.failure_is_recent())
+        and (cached_index is not None or not recent_failure)
     )
     return {
         "enabled": enabled,
@@ -119,5 +140,6 @@ def reset_disease_index() -> None:
     """Drop the cached index and any recorded failure (tests)."""
     with _lock:
         _state.index = None
+        _state.loaded_path = None
         _state.failed_at = None
         _state.error = None

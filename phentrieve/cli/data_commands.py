@@ -141,7 +141,7 @@ def prepare_disease_index(
     from phentrieve.disease_matching.index_builder import (
         build_index,
         fetch_sources,
-        latest_mondo_version,
+        resolve_mondo_version,
     )
     from phentrieve.utils import setup_logging_cli
 
@@ -167,7 +167,7 @@ def prepare_disease_index(
         typer.echo(f"Disease index versions differ ({', '.join(stale)}); rebuilding.")
     try:
         hpo_tag = resolve_hpo_version(hpo_version)
-        mondo_tag = mondo_version or latest_mondo_version()
+        mondo_tag = resolve_mondo_version(mondo_version)
         typer.echo(f"Fetching sources: HPO {hpo_tag}, MONDO {mondo_tag}...")
         sources = fetch_sources(
             index_dir / "sources", hpo_tag, mondo_tag, HPO_BASE_URL, force=force

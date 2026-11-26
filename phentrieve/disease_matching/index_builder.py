@@ -373,6 +373,11 @@ def build_index(
             ann_source.append(src)
         ptr.append(len(ann_term))
 
+    gene_diseases = {
+        g: sorted(d_index[d] for d in ds if d in d_index)
+        for g, ds in sorted(gene_dis.items())
+        if any(d in d_index for d in ds)
+    }
     info = dict(meta or {})
     info.update(
         {
@@ -381,7 +386,7 @@ def build_index(
             "merge_orpha": merge_orpha,
             "n_terms": len(ids),
             "n_diseases": len(disease_ids),
-            "n_genes": len(gene_dis),
+            "n_genes": len(gene_diseases),
             "n_omim_enriched": n_enriched,
             "n_twin_groups": len(twins),
             "licences": LICENCE_NOTES,
@@ -401,11 +406,7 @@ def build_index(
         ann_term=np.asarray(ann_term, dtype=np.int64),
         ann_f=f32(ann_f),
         ann_source=np.asarray(ann_source, dtype=np.int8),
-        gene_diseases={
-            g: sorted(d_index[d] for d in ds if d in d_index)
-            for g, ds in sorted(gene_dis.items())
-            if any(d in d_index for d in ds)
-        },
+        gene_diseases=gene_diseases,
         twins=twins,
         other_terms=sorted(
             {t for t in labels if t not in index}
@@ -443,6 +444,16 @@ def _download(url: str, path: Path) -> None:
         raise
 
 
+_RELEASE_TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _validate_release_tag(tag: str, label: str) -> str:
+    cleaned = tag.strip()
+    if not _RELEASE_TAG_RE.fullmatch(cleaned) or ".." in cleaned:
+        raise ValueError(f"Invalid {label} release tag: {tag!r}")
+    return cleaned
+
+
 def latest_mondo_version() -> str:
     response = requests.get(
         MONDO_LATEST_API_URL,
@@ -453,7 +464,14 @@ def latest_mondo_version() -> str:
     tag = response.json().get("tag_name")
     if not isinstance(tag, str) or not tag:
         raise RuntimeError("GitHub API response for MONDO is missing 'tag_name'")
-    return tag
+    return _validate_release_tag(tag, "MONDO")
+
+
+def resolve_mondo_version(version: str | None) -> str:
+    """Resolve ``None`` or ``'latest'`` to the latest published MONDO tag."""
+    if version is None or version.strip().lower() == "latest":
+        return latest_mondo_version()
+    return _validate_release_tag(version, "MONDO")
 
 
 def fetch_sources(
@@ -464,20 +482,26 @@ def fetch_sources(
     force: bool = False,
 ) -> dict[str, Any]:
     """Download the pinned inputs (skipping present files unless ``force``) and checksum them."""
+    safe_hpo = _validate_release_tag(hpo_version, "HPO")
+    safe_mondo = _validate_release_tag(mondo_version, "MONDO")
+    resolved_root = sources_dir.resolve()
+
     files: dict[str, dict[str, str]] = {}
     targets = [
-        (name, f"{hpo_base_url}/{hpo_version}/{name}", sources_dir / hpo_version / name)
+        (name, f"{hpo_base_url}/{safe_hpo}/{name}", sources_dir / safe_hpo / name)
         for name in HPO_FILES
     ]
     targets.append(
         (
             MONDO_FILE,
-            f"{MONDO_BASE_URL}/{mondo_version}/{MONDO_FILE}",
-            sources_dir / f"mondo-{mondo_version}" / MONDO_FILE,
+            f"{MONDO_BASE_URL}/{safe_mondo}/{MONDO_FILE}",
+            sources_dir / f"mondo-{safe_mondo}" / MONDO_FILE,
         )
     )
     for name, url, path in targets:
+        if not path.resolve().is_relative_to(resolved_root):
+            raise ValueError(f"Source path escapes sources_dir: {path}")
         if force or not path.is_file():
             _download(url, path)
         files[name] = {"url": url, "path": str(path), "sha256": sha256_file(path)}
-    return {"hpo_version": hpo_version, "mondo_version": mondo_version, "files": files}
+    return {"hpo_version": safe_hpo, "mondo_version": safe_mondo, "files": files}

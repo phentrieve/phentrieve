@@ -154,3 +154,25 @@ def test_latest_is_not_a_version_pin(tmp_path: Path, mocker) -> None:
         data_dir=str(tmp_path), hpo_version="latest", mondo_version="LATEST"
     )
     fetch.assert_not_called()
+
+
+def test_mondo_latest_resolves_tag_on_fresh_build(tmp_path: Path, mocker) -> None:
+    mocker.patch("phentrieve.utils.setup_logging_cli")
+    mocker.patch(
+        "phentrieve.data_processing.hpo_parser.resolve_hpo_version",
+        return_value="v2026-09-01",
+    )
+    mocker.patch(
+        "phentrieve.disease_matching.index_builder.latest_mondo_version",
+        return_value="v2026-09-01",
+    )
+    fetch = mocker.patch(
+        "phentrieve.disease_matching.index_builder.fetch_sources",
+        side_effect=_fake_sources,
+    )
+    from phentrieve.cli.data_commands import prepare_disease_index
+
+    prepare_disease_index(
+        data_dir=str(tmp_path), hpo_version="latest", mondo_version="latest"
+    )
+    assert fetch.call_args.args[2] == "v2026-09-01"
