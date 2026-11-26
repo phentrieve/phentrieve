@@ -286,7 +286,10 @@
       "manual": "Handmatig"
     },
     "spanAriaLabel": "Annotatie bewerken: {label}",
-    "wordCount": "{count} woord | {count} woorden"
+    "wordCount": "{count} woord | {count} woorden",
+    "modifierEyebrow": "Klinische modifier",
+    "modifierOf": "Wijzigt: {finding}",
+    "modifierAriaLabel": "Klinische modifier {label} bij {finding}"
   },
   "hpoTermPicker": {
     "changeTitle": "HPO-term wijzigen",

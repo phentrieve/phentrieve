@@ -76,6 +76,52 @@
             </div>
           </div>
         </v-tooltip>
+        <v-tooltip
+          v-else-if="segment.modifier"
+          location="top"
+          :open-delay="180"
+          open-on-focus
+          max-width="280"
+          content-class="annotated-note-tooltip"
+          :aria-label="segment.tooltip"
+        >
+          <template #activator="{ props }">
+            <span
+              v-bind="props"
+              data-testid="annotated-note-modifier"
+              class="annotated-note-modifier"
+              :class="{
+                'annotated-note-modifier--active':
+                  activePhenotypeId && segment.termIds.includes(activePhenotypeId),
+              }"
+              tabindex="0"
+              :aria-label="
+                $t('annotatedDocumentPane.modifierAriaLabel', {
+                  label: segment.tooltip,
+                  finding: segment.findingTooltip,
+                })
+              "
+              @mouseenter="$emit('hover', segment.termIds)"
+              @mouseleave="$emit('clear-hover')"
+              @focus="$emit('hover', segment.termIds)"
+              @blur="$emit('clear-hover')"
+              >{{ segment.text }}</span
+            >
+          </template>
+          <div class="annotated-note-tooltip__content">
+            <div class="annotated-note-tooltip__eyebrow">
+              {{ $t('annotatedDocumentPane.modifierEyebrow') }}
+            </div>
+            <div class="annotated-note-tooltip__label">{{ segment.tooltip }}</div>
+            <div class="annotated-note-tooltip__finding">
+              {{
+                $t('annotatedDocumentPane.modifierOf', {
+                  finding: segment.findingTooltip,
+                })
+              }}
+            </div>
+          </div>
+        </v-tooltip>
         <span v-else>{{ segment.text }}</span>
       </span>
     </div>
@@ -254,6 +300,45 @@ export default {
   box-shadow: inset 0 -0.5em 0 rgba(37, 99, 235, 0.24);
 }
 
+/* Modifier evidence (severity, onset, laterality, ...) is read-only context for
+   a finding, styled as in ontotator: a lighter tint of the finding fill and a
+   1 px double underline, never the solid fill of an annotation. While its
+   finding is hovered or active the underline turns into a dotted accent line. */
+.annotated-note-modifier {
+  background: rgba(37, 99, 235, 0.08);
+  border-radius: 3px;
+  text-decoration-line: underline;
+  text-decoration-style: double;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(var(--v-theme-on-surface), 0.7);
+  text-underline-offset: 3px;
+  cursor: help;
+  transition: background-color 0.18s ease;
+}
+
+.annotated-note-modifier:hover,
+.annotated-note-modifier:focus-visible {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.annotated-note-modifier--active {
+  background: rgba(37, 99, 235, 0.16);
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgb(var(--v-theme-primary));
+}
+
+@media (forced-colors: active) {
+  .annotated-note-modifier {
+    text-decoration-color: CanvasText;
+  }
+}
+
+.annotated-note-modifier:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+}
+
 /* Keyboard focus parity: a focused span gets the same emphasis as hover, plus a
    visible focus ring for non-pointer users (WCAG 2.4.7 / 1.4.13). */
 .annotated-note-span:focus-visible {
@@ -293,6 +378,11 @@ export default {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: rgb(var(--v-theme-primary));
+}
+
+.annotated-note-tooltip .annotated-note-tooltip__finding {
+  font-size: 0.75rem;
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 
 .annotated-note-tooltip .annotated-note-tooltip__label {

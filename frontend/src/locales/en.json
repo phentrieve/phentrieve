@@ -286,7 +286,10 @@
       "manual": "Manual"
     },
     "spanAriaLabel": "Edit annotation: {label}",
-    "wordCount": "{count} word | {count} words"
+    "wordCount": "{count} word | {count} words",
+    "modifierEyebrow": "Clinical modifier",
+    "modifierOf": "Modifies: {finding}",
+    "modifierAriaLabel": "Clinical modifier {label} of {finding}"
   },
   "hpoTermPicker": {
     "changeTitle": "Change HPO term",

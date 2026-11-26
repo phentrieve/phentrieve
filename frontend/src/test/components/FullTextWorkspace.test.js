@@ -155,3 +155,63 @@ describe('FullTextWorkspace annotated note', () => {
     expect(wrapper.emitted('span-activate')).toHaveLength(2);
   });
 });
+
+describe('FullTextWorkspace modifier evidence', () => {
+  const modifierSegments = [
+    {
+      key: 'modifier-0-0',
+      text: 'Severe',
+      highlighted: false,
+      modifier: true,
+      termIds: ['HP:0000365'],
+      modifierIds: ['HP:0012828'],
+      tooltip: 'Severe (HP:0012828)',
+      findingTooltip: 'Hearing impairment (HP:0000365)',
+    },
+    { key: 'plain-1', text: ' ', highlighted: false },
+    {
+      key: 'mark-1',
+      text: 'hearing loss',
+      highlighted: true,
+      termIds: ['HP:0000365'],
+      annotationIds: ['auto-HP:0000365-0'],
+      tooltip: 'Hearing impairment (HP:0000365)',
+    },
+  ];
+
+  it('renders modifier evidence as a non-editable, labelled marker', () => {
+    const wrapper = mountWorkspace({ segments: modifierSegments });
+    const modifier = wrapper.get('[data-testid="annotated-note-modifier"]');
+    expect(modifier.text()).toBe('Severe');
+    expect(modifier.element.tagName).toBe('SPAN');
+    expect(modifier.attributes('role')).toBeUndefined();
+    expect(modifier.attributes('tabindex')).toBe('0');
+    expect(modifier.attributes('aria-label')).toBe(
+      'Clinical modifier Severe (HP:0012828) of Hearing impairment (HP:0000365)'
+    );
+    expect(wrapper.findAll('[data-testid="annotated-note-span"]')).toHaveLength(1);
+  });
+
+  it('emits hover for the linked finding and does not open the annotation menu', async () => {
+    const wrapper = mountWorkspace({ segments: modifierSegments });
+    const modifier = wrapper.get('[data-testid="annotated-note-modifier"]');
+
+    await modifier.trigger('mouseenter');
+    expect(wrapper.emitted('hover')?.[0]).toEqual([['HP:0000365']]);
+    await modifier.trigger('mouseleave');
+    expect(wrapper.emitted('clear-hover')).toHaveLength(1);
+
+    await modifier.trigger('click');
+    expect(wrapper.emitted('span-activate')).toBeUndefined();
+  });
+
+  it('emphasises modifier evidence when its finding is active', () => {
+    const wrapper = mountWorkspace({
+      segments: modifierSegments,
+      activePhenotypeId: 'HP:0000365',
+    });
+    expect(wrapper.get('[data-testid="annotated-note-modifier"]').classes()).toContain(
+      'annotated-note-modifier--active'
+    );
+  });
+});

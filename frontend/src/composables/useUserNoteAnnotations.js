@@ -394,7 +394,11 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
     });
   });
 
-  if (ranges.length === 0) return [{ key: 'plain-note', text, highlighted: false }];
+  const modifierRanges = collectModifierRanges(text, annotations, ranges);
+
+  if (ranges.length === 0 && modifierRanges.length === 0) {
+    return [{ key: 'plain-note', text, highlighted: false }];
+  }
 
   ranges.sort((left, right) => left.start - right.start);
 
@@ -413,15 +417,36 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
     }
   }
 
+  const runs = [
+    ...merged.map((range) => ({ ...range, kind: 'finding' })),
+    ...modifierRanges.map((range) => ({ ...range, kind: 'modifier' })),
+  ].sort((left, right) => left.start - right.start);
+
   const segments = [];
   let cursor = 0;
-  merged.forEach((range, index) => {
+  runs.forEach((range, index) => {
     if (range.start > cursor) {
       segments.push({
         key: `plain-${index}-${cursor}`,
         text: text.slice(cursor, range.start),
         highlighted: false,
       });
+    }
+    if (range.kind === 'modifier') {
+      // Modifier evidence is shown, not edited: it is not a highlighted
+      // annotation, so it opens no popover and adds no finding.
+      segments.push({
+        key: `modifier-${index}-${range.start}`,
+        text: text.slice(range.start, range.end),
+        highlighted: false,
+        modifier: true,
+        termIds: range.termIds,
+        modifierIds: range.modifierIds,
+        tooltip: range.labels.join(', '),
+        findingTooltip: range.termIds.map((id) => `${labelById.get(id) || id} (${id})`).join(', '),
+      });
+      cursor = range.end;
+      return;
     }
     segments.push({
       key: `mark-${index}-${range.start}`,
@@ -441,6 +466,54 @@ export function buildSegmentsFromAnnotations(noteText, annotations) {
   }
 
   return segments;
+}
+
+/**
+ * Collect the note ranges quoted by modifier segments ({ start, end, text }).
+ * A range is dropped when its offsets no longer match the note (redacted or
+ * edited text) or when it overlaps a finding span, which wins: chunk-fallback
+ * finding spans can cover a whole sentence including the modifier words.
+ * Overlapping modifier ranges are merged and keep every linked finding.
+ */
+function collectModifierRanges(text, annotations, findingRanges) {
+  const ranges = [];
+  (Array.isArray(annotations) ? annotations : []).forEach((ann) => {
+    if (!ann || typeof ann.hpoId !== 'string' || !Array.isArray(ann.modifiers)) return;
+    ann.modifiers.forEach((modifier) => {
+      if (!modifier || typeof modifier.term_id !== 'string') return;
+      const label = `${modifier.label || modifier.term_id} (${modifier.term_id})`;
+      (Array.isArray(modifier.segments) ? modifier.segments : []).forEach((segment) => {
+        const start = segment?.start;
+        const end = segment?.end;
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+        if (start < 0 || end <= start || end > text.length) return;
+        if (typeof segment.text === 'string' && text.slice(start, end) !== segment.text) return;
+        if (findingRanges.some((f) => f.start < end && f.end > start)) return;
+        ranges.push({
+          start,
+          end,
+          termIds: [ann.hpoId],
+          modifierIds: [modifier.term_id],
+          labels: [label],
+        });
+      });
+    });
+  });
+
+  ranges.sort((left, right) => left.start - right.start);
+  const merged = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start < previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+      previous.termIds = [...new Set([...previous.termIds, ...range.termIds])];
+      previous.modifierIds = [...new Set([...previous.modifierIds, ...range.modifierIds])];
+      previous.labels = [...new Set([...previous.labels, ...range.labels])];
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
 }
 
 /**
