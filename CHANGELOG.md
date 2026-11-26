@@ -18,9 +18,32 @@ together:
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-11-26 (CLI 0.34.0 / API 0.24.0 / Frontend 0.24.0)
+
+`PROMPT_BEHAVIOR_VERSION` stays at `10` with default settings: both new features below
+(clinical modifiers behind `extract_modifiers` and disease/gene ranking behind
+`PHENTRIEVE_DISEASE_RANKING_ENABLED`) are off by default, so existing outputs are
+unchanged when neither flag is enabled.
+
 ### Added
 
-- **Disease and gene ranking from collected phenotypes (research use, off by default).**
+- **Clinical modifiers attached to findings, opt-in behind `extract_modifiers` (#559, #563).**
+  Findings can carry clinical modifiers (severity, onset, laterality, progression, course,
+  distribution) in ontospan's `Annotation.modifiers` shape (`term_id`, `label`, `segments`,
+  `source`) across CLI, REST API, MCP export, and the Vue frontend.
+  - Configurable ontology profiles (`finding_roots`, `modifier_roots`, `index_roots`) with
+    role-aware ontology guarding, index-root metadata mismatch detection, and
+    subtree-restricted modifier retrieval.
+  - LLM pipeline extracts modifier phrases in phase 1, maps them to modifier subtrees in
+    phase 2, enforces word-boundary span carving and post-dedup reconciliation, and flags
+    exclusivity violations and cohort frequency terms.
+  - Phenopacket v2 export maps severity to `PhenotypicFeature.severity`, onset to
+    `PhenotypicFeature.onset.ontologyClass`, and remaining modifiers to
+    `PhenotypicFeature.modifiers`; adds ontospan 1.2 annotation-set export.
+  - Frontend adds an opt-in "Extract clinical modifiers" toggle in LLM mode, modifier chips
+    and warning indicators on findings, modifier preservation on collection/export, and
+    read-only modifier span highlighting in the annotated note.
+- **Disease and gene ranking from collected phenotypes (research use, off by default; #557).**
   A "Similar diseases" panel in the case workspace ranks rare diseases or genes for the
   collected HPO terms and explains each row: matched term pairs, conflicts with excluded
   terms, unexplained terms and annotation sources.
@@ -33,6 +56,17 @@ together:
     `PHENTRIEVE_DISEASE_RANKING_ENABLED`. config-info reports the feature status.
   - See `docs/user-guide/disease-ranking.md` for the open points (evidence, intended use,
     OMIM licence) to settle before enabling it publicly.
+
+### Fixed
+
+- **Compact header and sticky search bar once results exist (#563).** Replaces the nested
+  conversation scroll box under the full header with page-level scrolling, a compact logo
+  row, a sticky search bar (when advanced options are closed), and a single-row collapsed
+  note input until text is entered.
+- **Container image security updates (#558, #557).** Upgrades `nginx` in the frontend
+  Docker image to `>=1.30.7` (CVE-2026-113425, CVE-2026-118899, CVE-2026-121810,
+  CVE-2026-123007, CVE-2026-123633) and force-upgrades `libzstd1` in the API Docker image
+  (CVE-2026-124851).
 
 ## [0.33.0] — 2026-11-17 (CLI 0.33.0 / API 0.23.0 / Frontend 0.23.0)
 
