@@ -18,6 +18,16 @@ together:
 
 ## [Unreleased]
 
+## [0.35.1] — 2026-11-27 (CLI 0.35.1 / API 0.25.1 / Frontend 0.25.1)
+
+### Fixed
+
+- **`POST /mcp/` reaches the MCP again behind the frontend nginx.** 0.35.0 serves MCP
+  on the exact path `/mcp` and answered `/mcp/` with a 307, which broke clients
+  configured with the trailing slash. The frontend nginx now rewrites `/mcp/` to `/mcp`.
+- The `phentrieve://schema/overview` resource describes the 0.35.0 envelope: payloads
+  under `result`/`results`, errors with `isError`.
+
 ## [0.35.0] — 2026-11-26 (CLI 0.35.0 / API 0.25.0 / Frontend 0.25.0)
 
 ### Changed (breaking)
