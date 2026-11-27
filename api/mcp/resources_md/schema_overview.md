@@ -5,8 +5,9 @@ Ontology (HPO) term suggestions using a retrieval-augmented pipeline (dense
 embedding retrieval, optional LLM-assisted extraction, ontology similarity).
 
 - **Transport:** Streamable HTTP, mounted at `/mcp`.
-- **Envelope:** every tool returns a Family B object — `success: true` plus named
-  domain keys and a `_meta` block, or `success: false` with `error_code`,
+- **Envelope:** every tool returns `success: true` with its payload under
+  `results` (a list, e.g. search) or `result` and a `_meta` block, or (with the
+  MCP `isError` flag) `success: false` with `error_code`, `message`,
   `retryable`, and `recovery_action`. `_meta` always carries `tool`,
   `request_id`, `elapsed_ms`, `capabilities_version`, `unsafe_for_clinical_use`,
   and `next_commands`.
