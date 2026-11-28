@@ -33,6 +33,17 @@ const router = createRouter({
       name: 'reset-password',
       component: () => import('../views/ResetPasswordView.vue'),
     },
+    // Dev-only UI preview with mock data (no API, no redaction). The import is
+    // behind import.meta.env.DEV, so production builds drop the view entirely.
+    ...(import.meta.env.DEV
+      ? [
+          {
+            path: '/dev/full-text',
+            name: 'dev-full-text',
+            component: () => import('../views/DevFullTextPreview.vue'),
+          },
+        ]
+      : []),
     // Unknown paths would otherwise render an empty page
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

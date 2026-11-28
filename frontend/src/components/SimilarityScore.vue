@@ -1,12 +1,16 @@
 <template>
   <div class="similarity-score-wrapper">
     <v-chip
-      :color="scoreColor"
-      :variant="chipVariant"
+      :color="subtle ? undefined : scoreColor"
+      :variant="subtle ? 'tonal' : chipVariant"
       size="small"
       label
-      class="score-chip elevation-1"
-      :class="{ 'score-chip--pulsing': isPulsing }"
+      class="score-chip"
+      :class="{
+        'elevation-1': !subtle,
+        'score-chip--subtle': subtle,
+        'score-chip--pulsing': isPulsing,
+      }"
     >
       <v-icon :icon="scoreIcon" size="x-small" start class="score-icon" />
       <span class="score-value">{{ formattedScore }}</span>
@@ -120,6 +124,12 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Neutral, light chip for dense lists where colour belongs to the term marks
+  // (#562); the tooltip still names the score quality.
+  subtle: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const { t } = useI18n();
@@ -222,6 +232,11 @@ const isPulsing = computed(() => {
 </script>
 
 <style scoped>
+.score-chip--subtle {
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+}
+
 .similarity-score-wrapper {
   display: inline-block;
 }

@@ -46,12 +46,15 @@
               v-bind="props"
               data-testid="annotated-note-span"
               class="annotated-note-span"
-              :class="{
-                'annotated-note-span--active':
-                  activePhenotypeId && segment.termIds.includes(activePhenotypeId),
-                'annotated-note-span--manual': segment.manual,
-                'annotated-note-span--negated': segment.negated,
-              }"
+              :class="[
+                markColourClass(segment.colourSlot),
+                {
+                  'annotated-note-span--active':
+                    activePhenotypeId && segment.termIds.includes(activePhenotypeId),
+                  'annotated-note-span--manual': segment.manual,
+                  'annotated-note-span--negated': segment.negated,
+                },
+              ]"
               role="button"
               aria-haspopup="menu"
               tabindex="0"
@@ -90,10 +93,13 @@
               v-bind="props"
               data-testid="annotated-note-modifier"
               class="annotated-note-modifier"
-              :class="{
-                'annotated-note-modifier--active':
-                  activePhenotypeId && segment.termIds.includes(activePhenotypeId),
-              }"
+              :class="[
+                markColourClass(segment.colourSlot),
+                {
+                  'annotated-note-modifier--active':
+                    activePhenotypeId && segment.termIds.includes(activePhenotypeId),
+                },
+              ]"
               tabindex="0"
               :aria-description="
                 $t('annotatedDocumentPane.modifierAriaLabel', {
@@ -130,6 +136,7 @@
 
 <script>
 import { computeSelectionOffsets, trimSelection } from '../../composables/useUserNoteAnnotations';
+import { markColourClass } from '../../utils/markColours';
 
 export default {
   name: 'FullTextWorkspace',
@@ -157,6 +164,7 @@ export default {
   },
   emits: ['toggle', 'hover', 'clear-hover', 'span-activate', 'text-select'],
   methods: {
+    markColourClass,
     activateSpan(segment, event) {
       const rect = event?.currentTarget?.getBoundingClientRect?.() || null;
       this.$emit('span-activate', {
@@ -250,54 +258,65 @@ export default {
   color: rgba(var(--v-theme-on-surface), 0.9);
 }
 
+/* Finding marks take their term's colour slot (#562, styles/markColours.css);
+   the fallback is the blue of slot 0. State never changes the hue:
+   - manual: solid 2px underline
+   - negated (absent): hatch in the term colour plus a dashed frame (#570)
+   - active (hovered in the findings list): solid frame */
 .annotated-note-span,
 .user-note-summary__expanded mark {
-  background: rgba(37, 99, 235, 0.16);
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha, 0.2));
   color: inherit;
   border-radius: 4px;
-  box-shadow: inset 0 -0.42em 0 rgba(37, 99, 235, 0.14);
   cursor: pointer;
   transition:
     background-color 0.18s ease,
-    box-shadow 0.18s ease;
+    outline-color 0.18s ease;
 }
 
 .annotated-note-span:hover,
 .user-note-summary__expanded mark:hover {
-  background: rgba(37, 99, 235, 0.22);
-  box-shadow: inset 0 -0.5em 0 rgba(37, 99, 235, 0.18);
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha-hover, 0.3));
 }
 
-/* Manually curated annotations get a distinct hue (violet) so they read as
-   human edits versus the automatic (blue) extraction. The doubled class outranks
-   the base ".user-note-summary__expanded mark" selector (0,2,1). */
+/* The doubled class outranks the base ".user-note-summary__expanded mark"
+   selector (0,2,1). */
 .annotated-note-span.annotated-note-span--manual {
-  background: rgba(124, 58, 237, 0.18);
-  box-shadow: inset 0 -0.42em 0 rgba(124, 58, 237, 0.16);
-}
-
-.annotated-note-span.annotated-note-span--manual:hover {
-  background: rgba(124, 58, 237, 0.26);
-  box-shadow: inset 0 -0.5em 0 rgba(124, 58, 237, 0.2);
-}
-
-.annotated-note-span.annotated-note-span--negated,
-.annotated-note-span.annotated-note-span--negated:hover {
-  background: rgba(var(--v-theme-warning), 0.12);
-  box-shadow: none;
-  text-decoration: underline wavy rgba(var(--v-theme-warning), 0.7);
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgba(var(--v-theme-on-surface), 0.75);
   text-underline-offset: 3px;
 }
 
-.annotated-note-tooltip__negated {
-  margin-top: 4px;
-  font-weight: 600;
-  color: rgb(var(--v-theme-warning));
+/* Absent findings: no wavy or coloured underline, which reads as a spell-check
+   error (#570). The dashed frame keeps the state visible without colour. */
+.annotated-note-span.annotated-note-span--negated {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(var(--ph-mark-rgb, 37, 99, 235), calc(var(--ph-mark-alpha, 0.2) * 1.4)) 0 2px,
+    rgba(var(--ph-mark-rgb, 37, 99, 235), calc(var(--ph-mark-alpha, 0.2) * 0.25)) 2px 6px
+  );
+  outline: 1px dashed rgba(var(--v-theme-on-surface), 0.5);
+  outline-offset: -1px;
 }
 
-.annotated-note-span--active {
-  background: rgba(37, 99, 235, 0.32) !important;
-  box-shadow: inset 0 -0.5em 0 rgba(37, 99, 235, 0.24);
+.annotated-note-span.annotated-note-span--negated:hover {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(var(--ph-mark-rgb, 37, 99, 235), calc(var(--ph-mark-alpha-hover, 0.3) * 1.4)) 0 2px,
+    rgba(var(--ph-mark-rgb, 37, 99, 235), calc(var(--ph-mark-alpha-hover, 0.3) * 0.4)) 2px 6px
+  );
+}
+
+.annotated-note-span.annotated-note-span--active {
+  background-color: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha-hover, 0.3));
+  outline: 2px solid rgb(var(--v-theme-on-surface));
+  outline-offset: 1px;
+}
+
+.annotated-note-span.annotated-note-span--negated.annotated-note-span--active {
+  outline-style: dashed;
 }
 
 /* Modifier evidence (severity, onset, laterality, ...) is read-only context for
@@ -305,7 +324,7 @@ export default {
    1 px double underline, never the solid fill of an annotation. While its
    finding is hovered or active the underline turns into a dotted accent line. */
 .annotated-note-modifier {
-  background: rgba(37, 99, 235, 0.08);
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), calc(var(--ph-mark-alpha, 0.2) * 0.5));
   border-radius: 3px;
   text-decoration-line: underline;
   text-decoration-style: double;
@@ -318,17 +337,34 @@ export default {
 
 .annotated-note-modifier:hover,
 .annotated-note-modifier:focus-visible {
-  background: rgba(37, 99, 235, 0.16);
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha, 0.2));
 }
 
 .annotated-note-modifier--active {
-  background: rgba(37, 99, 235, 0.16);
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha, 0.2));
   text-decoration-style: dotted;
   text-decoration-thickness: 2px;
   text-decoration-color: rgb(var(--v-theme-primary));
 }
 
 @media (forced-colors: active) {
+  /* Fills are dropped in forced-colors mode; system colours keep marks visible. */
+  .annotated-note-span,
+  .user-note-summary__expanded mark {
+    background: Mark;
+    color: MarkText;
+  }
+
+  .annotated-note-span.annotated-note-span--negated {
+    background: Canvas;
+    color: CanvasText;
+    outline-color: CanvasText;
+  }
+
+  .annotated-note-span.annotated-note-span--active {
+    outline-color: Highlight;
+  }
+
   .annotated-note-modifier {
     text-decoration-color: CanvasText;
   }
@@ -348,7 +384,7 @@ export default {
 .annotated-note-span:focus-visible {
   outline: 2px solid rgb(var(--v-theme-primary));
   outline-offset: 2px;
-  background: rgba(37, 99, 235, 0.22);
+  background-color: rgba(var(--ph-mark-rgb, 37, 99, 235), var(--ph-mark-alpha-hover, 0.3));
 }
 </style>
 
@@ -382,6 +418,13 @@ export default {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: rgb(var(--v-theme-primary));
+}
+
+/* Teleported tooltip: must live in this global block to apply. */
+.annotated-note-tooltip .annotated-note-tooltip__negated {
+  margin-top: 4px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 
 .annotated-note-tooltip .annotated-note-tooltip__finding {

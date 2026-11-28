@@ -58,6 +58,7 @@ function mountReceipt(props = {}, plugins = [vuetify, i18n]) {
               @click="$emit('add-to-collection', result)"
             >
               {{ rank }} {{ result.label }} {{ result.score }} {{ result.assertion_status }}
+              <slot name="badges" />
             </button>
           `,
         },
