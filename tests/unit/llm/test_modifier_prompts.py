@@ -30,8 +30,8 @@ def test_modifier_extraction_prompt_loads_and_stays_compact() -> None:
     base = loader.get_prompt(AnnotationMode.TWO_PHASE, "en")
     mod = loader.get_modifier_extraction_prompt("en")
 
-    assert base.version == "v3.4.1"
-    assert mod.version == "v3.5.0"
+    assert base.version == "v3.5.0"
+    assert mod.version == "v3.6.0"
     assert Path(mod.source_path).as_posix().endswith("two_phase/en_modifiers.yaml")
     assert mod.system_prompt.isascii()
     assert "few_shot_examples" not in Path(mod.source_path).read_text(encoding="utf-8")
@@ -55,7 +55,7 @@ def test_modifier_extraction_prompt_loads_and_stays_compact() -> None:
 def test_modifier_extraction_prompt_falls_back_to_english_for_other_languages() -> None:
     template = loader.get_modifier_extraction_prompt("de")
 
-    assert template.version == "v3.5.0"
+    assert template.version == "v3.6.0"
     assert Path(template.source_path).as_posix().endswith("two_phase/en_modifiers.yaml")
 
 
@@ -116,7 +116,7 @@ def test_prompt_bundle_identity_default_unchanged_and_modifiers_distinct() -> No
 
     assert default_identity == explicit_false
     assert default_identity.prompt_behavior_version == PROMPT_BEHAVIOR_VERSION
-    assert default_identity.prompt_behavior_version == "10"
+    assert default_identity.prompt_behavior_version == "11"
     assert tuple(c.name for c in default_identity.components) == (
         "extraction",
         "mapping",
@@ -126,7 +126,7 @@ def test_prompt_bundle_identity_default_unchanged_and_modifiers_distinct() -> No
     assert (
         modifiers_identity.prompt_behavior_version == PROMPT_MODIFIERS_BEHAVIOR_VERSION
     )
-    assert modifiers_identity.prompt_behavior_version == "11"
+    assert modifiers_identity.prompt_behavior_version == "12"
     assert tuple(c.name for c in modifiers_identity.components) == (
         "extraction",
         "mapping",
@@ -135,6 +135,6 @@ def test_prompt_bundle_identity_default_unchanged_and_modifiers_distinct() -> No
         "batch_modifier_mapping",
     )
     assert modifiers_identity.sha256 != default_identity.sha256
-    assert modifiers_identity.components[0].version == "v3.5.0"
+    assert modifiers_identity.components[0].version == "v3.6.0"
     assert modifiers_identity.components[3].version == "v4.3.0"
     assert modifiers_identity.components[4].version == "v4.3.0"

@@ -21,7 +21,7 @@ def test_get_mapping_prompt_loads_packaged_template() -> None:
     template = loader.get_mapping_prompt("fr")
 
     assert template.language == "fr"
-    assert template.version == "v4.2.1"
+    assert template.version == "v4.3.0"
     assert "You map clinical phenotype phrases to HPO terms." in template.system_prompt
     assert Path(template.source_path).as_posix().endswith("two_phase/en_mapping.yaml")
 
@@ -32,7 +32,7 @@ def test_get_batch_mapping_prompt_uses_shared_english_template_with_requested_la
     template = loader.get_batch_mapping_prompt("de")
 
     assert template.language == "de"
-    assert template.version == "v4.2.1"
+    assert template.version == "v4.3.0"
     assert (
         Path(template.source_path)
         .as_posix()
@@ -106,8 +106,8 @@ def test_packaged_templates_define_no_few_shot_examples() -> None:
 
 
 def test_mapping_prompts_carry_current_version() -> None:
-    assert loader.get_mapping_prompt("en").version == "v4.2.1"
-    assert loader.get_batch_mapping_prompt("en").version == "v4.2.1"
+    assert loader.get_mapping_prompt("en").version == "v4.3.0"
+    assert loader.get_batch_mapping_prompt("en").version == "v4.3.0"
 
 
 def _mapping_rules(system_prompt: str) -> str:
@@ -460,10 +460,10 @@ def test_phase1_category_other_is_only_another_person() -> None:
         assert "indirectly in words" in system_prompt
 
 
-def test_phase1_template_is_v3_4_1_and_keeps_its_placeholders() -> None:
+def test_phase1_template_is_v3_5_0_and_keeps_its_placeholders() -> None:
     template = loader.get_prompt(AnnotationMode.TWO_PHASE, "en")
 
-    assert template.version == "v3.4.1"
+    assert template.version == "v3.5.0"
     assert "{chunk_index}" in template.user_prompt_template
     assert "{text}" in template.user_prompt_template
 

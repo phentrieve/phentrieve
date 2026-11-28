@@ -1,4 +1,4 @@
-version: "v4.2.1"
+version: "v4.3.0"
 
 system_prompt: |
   You map clinical phenotype phrases to HPO terms.

@@ -1,4 +1,4 @@
-version: "v3.5.0"
+version: "v3.6.0"
 
 system_prompt: |
   You are an expert clinical geneticist. Extract source-faithful phenotype phrases
