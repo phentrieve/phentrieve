@@ -248,7 +248,11 @@
       "queryLabel": "Consulta de fenotipo",
       "noteLabel": "Nota de investigación",
       "notePlaceholder": "Pegue o escriba texto de fenotipos de investigación",
-      "noteSubmitHint": "Ctrl+Enter para analizar",
+      "noteSubmitHint": "{shortcut} para analizar",
+      "submitTooltipQuery": "Buscar ({shortcut})",
+      "submitTooltipNote": "Analizar ({shortcut})",
+      "ctrlKey": "Ctrl",
+      "enterKey": "Enter",
       "cancel": "Cancelar",
       "collapseNote": "Contraer nota",
       "expandNote": "Expandir nota"

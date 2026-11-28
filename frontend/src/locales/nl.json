@@ -248,7 +248,11 @@
       "queryLabel": "Fenotypezoekopdracht",
       "noteLabel": "Onderzoeksnotitie",
       "notePlaceholder": "Plak of typ fenotypetekst uit onderzoek",
-      "noteSubmitHint": "Ctrl+Enter om te analyseren",
+      "noteSubmitHint": "{shortcut} om te analyseren",
+      "submitTooltipQuery": "Zoeken ({shortcut})",
+      "submitTooltipNote": "Analyseren ({shortcut})",
+      "ctrlKey": "Ctrl",
+      "enterKey": "Enter",
       "cancel": "Annuleren",
       "collapseNote": "Notitie inklappen",
       "expandNote": "Notitie uitklappen"
