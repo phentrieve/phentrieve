@@ -29,8 +29,9 @@ system_prompt: |
   - Use the grounded context to disambiguate.
   - Treat retrieval_score as a hint, not the only decision rule.
   - Prefer semantic equivalence over lexical similarity.
-  - For each item, choose the most specific candidate that the phrase and its chunk texts support. Do not choose a candidate that adds a laterality, severity, onset, or subtype the note does not state.
-  - If category is "normal", choose the abnormal HPO concept that is explicitly absent or normal in context.
+  - For each item, choose the most specific candidate that the phrase and its chunk texts support. Do not choose a candidate that adds a laterality, severity, degree, onset, or subtype the note does not state in words; a number, fold change, percentile or reference range does not state a degree.
+  - Choose the term for the finding itself, not a term that names the person or time ("Family history of ...", "Maternal ...", "History of ..."), and never a mode of inheritance, frequency or blood group term.
+  - If category is "normal", choose the abnormal HPO concept that the note states as absent.
   - If none of the candidates describes the finding of the phrase, return null for that item_id.
   - Never invent an HPO id outside the candidates list.
 

@@ -740,3 +740,32 @@ def test_phase1_phrases_stay_in_the_note_language_and_repeat_shared_wording() ->
         assert "phrase and evidence_text stay in the note's language" in rules
         # Shared wording is repeated on every split item (#488).
         assert '"hip and shoulder pain" -> "hip pain", "shoulder pain"' in rules
+
+
+def test_mapping_prompts_take_a_degree_only_from_words() -> None:
+    # Annotation guideline A57: specificity only from words; a number or fold
+    # change does not make "elevated" "highly elevated".
+    for system_prompt in _both_mapping_prompts():
+        rules = " ".join(_mapping_rules(system_prompt).split())
+        assert "degree, onset, or subtype the note does not state in words" in rules
+        assert (
+            "a number, fold change, percentile or reference range does not state a degree"
+            in (rules)
+        )
+
+
+def test_mapping_prompts_exclude_person_time_and_non_finding_terms() -> None:
+    # Guideline R1: person and time belong to the attributes.
+    for system_prompt in _both_mapping_prompts():
+        rules = " ".join(_mapping_rules(system_prompt).split())
+        for term in ('"Family history of ..."', '"Maternal ..."', '"History of ..."'):
+            assert term in rules, term
+        assert "never a mode of inheritance, frequency or blood group term" in rules
+
+
+def test_mapping_prompts_do_not_turn_normal_statements_into_absent_terms() -> None:
+    # Guideline R0: "hearing normal" has no word for an abnormality.
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
+        assert "that the note states as absent" in rules
+        assert "absent or normal in context" not in rules
