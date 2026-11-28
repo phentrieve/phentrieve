@@ -729,3 +729,14 @@ def test_phase1_temporality_follows_the_wording_not_medical_knowledge() -> None:
         )
         assert "A known chronic condition is current" not in temporality
         assert "no longer present" not in temporality
+
+
+def test_phase1_phrases_stay_in_the_note_language_and_repeat_shared_wording() -> None:
+    for system_prompt in _both_phase1_prompts():
+        rules = " ".join(
+            _section(system_prompt, "Extraction rules:", "Output JSON").split()
+        )
+        # Phase-2 routing depends on the phrase language (#560).
+        assert "phrase and evidence_text stay in the note's language" in rules
+        # Shared wording is repeated on every split item (#488).
+        assert '"hip and shoulder pain" -> "hip pain", "shoulder pain"' in rules
