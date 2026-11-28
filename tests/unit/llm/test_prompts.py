@@ -21,7 +21,7 @@ def test_get_mapping_prompt_loads_packaged_template() -> None:
     template = loader.get_mapping_prompt("fr")
 
     assert template.language == "fr"
-    assert template.version == "v4.2.1"
+    assert template.version == "v4.3.0"
     assert "You map clinical phenotype phrases to HPO terms." in template.system_prompt
     assert Path(template.source_path).as_posix().endswith("two_phase/en_mapping.yaml")
 
@@ -32,7 +32,7 @@ def test_get_batch_mapping_prompt_uses_shared_english_template_with_requested_la
     template = loader.get_batch_mapping_prompt("de")
 
     assert template.language == "de"
-    assert template.version == "v4.2.1"
+    assert template.version == "v4.3.0"
     assert (
         Path(template.source_path)
         .as_posix()
@@ -106,8 +106,8 @@ def test_packaged_templates_define_no_few_shot_examples() -> None:
 
 
 def test_mapping_prompts_carry_current_version() -> None:
-    assert loader.get_mapping_prompt("en").version == "v4.2.1"
-    assert loader.get_batch_mapping_prompt("en").version == "v4.2.1"
+    assert loader.get_mapping_prompt("en").version == "v4.3.0"
+    assert loader.get_batch_mapping_prompt("en").version == "v4.3.0"
 
 
 def _mapping_rules(system_prompt: str) -> str:
@@ -421,20 +421,49 @@ def test_phase1_prompt_is_english_only() -> None:
         assert cue not in system_prompt, cue
 
 
+def _both_phase1_prompts() -> list[str]:
+    return [
+        _phase1_system_prompt(),
+        loader.get_modifier_extraction_prompt("en").system_prompt,
+    ]
+
+
 def test_phase1_prompt_names_no_numeric_threshold_for_measurements() -> None:
-    system_prompt = _phase1_system_prompt()
+    for system_prompt in _both_phase1_prompts():
+        flat = " ".join(system_prompt.split())
+        # The note has to classify a measurement in words; the prompt gives no
+        # cut-off that would let the model judge a value, percentile or SD score.
+        assert (
+            "A measurement is a finding only when a word in the note classifies it"
+            in (flat)
+        )
+        assert "Never interpret numbers, flags or reference ranges" in flat
+        for cutoff in ("97th", "3rd", "2 SD", "3. Perzentile"):
+            assert cutoff not in system_prompt, cutoff
 
-    # The note has to state an abnormality; the prompt gives no cut-off that
-    # would let the model judge a value, percentile or SD score itself.
-    assert "from raw numbers alone" in system_prompt
-    for cutoff in ("97th", "3rd", "2 SD", "3. Perzentile"):
-        assert cutoff not in system_prompt, cutoff
+
+def test_phase1_category_other_is_only_another_person() -> None:
+    # Category follows from experiencer and assertion without an exception, so a
+    # measurement the note classifies ("elevated ferritin") is not dropped as
+    # Other (#495).
+    for system_prompt in _both_phase1_prompts():
+        (other_line,) = [
+            line
+            for line in system_prompt.splitlines()
+            if line.strip().startswith("- Other:")
+        ]
+        assert other_line.strip() == (
+            "- Other: the phenotype belongs to another person who is not a relative"
+        )
+        assert "Exception: non-phenotype information" not in system_prompt
+        assert "gets category Other" not in system_prompt
+        assert "indirectly in words" in system_prompt
 
 
-def test_phase1_template_is_v3_4_1_and_keeps_its_placeholders() -> None:
+def test_phase1_template_is_v3_5_0_and_keeps_its_placeholders() -> None:
     template = loader.get_prompt(AnnotationMode.TWO_PHASE, "en")
 
-    assert template.version == "v3.4.1"
+    assert template.version == "v3.5.0"
     assert "{chunk_index}" in template.user_prompt_template
     assert "{text}" in template.user_prompt_template
 
@@ -649,3 +678,94 @@ def test_mapping_prompts_describe_the_compacted_payload(get_template) -> None:
         "retrieval_query only when it differs from the item's retrieval_query"
         in candidate_line
     )
+
+
+def test_phase1_prompt_defines_what_a_finding_is() -> None:
+    # Scope as in the annotation guideline (R0): what is extracted and what is not.
+    for system_prompt in _both_phase1_prompts():
+        flat = " ".join(system_prompt.split())
+        assert (
+            "A finding is a pathological finding of a person that the note states"
+            in (flat)
+        )
+        for excluded in (
+            '"ultrasound unremarkable"',
+            '"status post tonsillectomy"',
+            '"smoker"',
+            '"risk of renal failure"',
+        ):
+            assert excluded in flat, excluded
+        # The scope sentence replaces the separate "do not emit" rule.
+        assert "Do not emit onset modifiers" not in flat
+
+
+def test_phase1_prompt_lets_doubt_win_and_resolved_findings_be_absent() -> None:
+    for system_prompt in _both_phase1_prompts():
+        assertion_axis = " ".join(
+            _section(system_prompt, "2. assertion:", "3. temporality:").split()
+        )
+        assert (
+            'Doubt wins over negation: "no definite evidence of X" is uncertain.'
+            in (assertion_axis)
+        )
+        assert "has resolved or normalized is absent" in assertion_axis
+
+
+def test_phase1_temporality_follows_the_wording_not_medical_knowledge() -> None:
+    # Guideline R3 / A47: historical is placed before and outside the reported
+    # case; the reported case and stated continuation are current; persistence
+    # is never assumed.
+    for system_prompt in _both_phase1_prompts():
+        temporality = " ".join(
+            _section(system_prompt, "3. temporality:", "Map the two axes").split()
+        )
+        assert "the reason for or the subject of the present contact" in temporality
+        assert "before and outside the reported case" in temporality
+        assert "The narrative past tense of a report alone is not historical." in (
+            temporality
+        )
+        assert "Never infer from medical knowledge whether a finding persists." in (
+            temporality
+        )
+        assert "A known chronic condition is current" not in temporality
+        assert "no longer present" not in temporality
+
+
+def test_phase1_phrases_stay_in_the_note_language_and_repeat_shared_wording() -> None:
+    for system_prompt in _both_phase1_prompts():
+        rules = " ".join(
+            _section(system_prompt, "Extraction rules:", "Output JSON").split()
+        )
+        # Phase-2 routing depends on the phrase language (#560).
+        assert "phrase and evidence_text stay in the note's language" in rules
+        # Shared wording is repeated on every split item (#488).
+        assert '"hip and shoulder pain" -> "hip pain", "shoulder pain"' in rules
+
+
+def test_mapping_prompts_take_a_degree_only_from_words() -> None:
+    # Annotation guideline A57: specificity only from words; a number or fold
+    # change does not make "elevated" "highly elevated".
+    for system_prompt in _both_mapping_prompts():
+        rules = " ".join(_mapping_rules(system_prompt).split())
+        assert "degree, onset, or subtype the note does not state in words" in rules
+        assert (
+            "a number, fold change, percentile or reference range does not state a degree"
+            in (rules)
+        )
+
+
+def test_mapping_prompts_exclude_person_time_and_non_finding_terms() -> None:
+    # Guideline R1: person and time belong to the attributes.
+    for system_prompt in _both_mapping_prompts():
+        rules = " ".join(_mapping_rules(system_prompt).split())
+        for term in ('"Family history of ..."', '"Maternal ..."', '"History of ..."'):
+            assert term in rules, term
+        assert "never a mode of inheritance, frequency or blood group term" in rules
+
+
+def test_mapping_prompts_do_not_turn_normal_statements_into_absent_terms() -> None:
+    # Guideline R0: "hearing normal" has no word for an abnormality.
+    for system_prompt in _both_mapping_prompts():
+        rules = _mapping_rules(system_prompt)
+        assert "that the note states as absent" in rules
+        assert "absent or normal in context" not in rules

@@ -83,16 +83,19 @@ def test_prompt_defines_temporality():
 
     assert "temporality" in prompt
     assert "historical" in prompt
-    assert "no longer present" in prompt
+    assert "before and outside" in prompt
+    assert "no longer present" not in prompt
 
 
-def test_prompt_keeps_non_phenotype_information_out_of_the_patient_categories():
+def test_prompt_derives_category_from_the_axes_without_exception():
+    # Category Other means another person only; non-phenotype information is not
+    # extracted at all instead of being parked in Other (#495).
     prompt = " ".join(get_prompt("two_phase", "en").render_system_prompt().split())
 
-    assert (
-        "Exception: non-phenotype information (onset, inheritance, age, measurement) "
-        "always gets category Other"
-    ) in prompt
+    assert "Exception: non-phenotype information" not in prompt
+    assert "- Other: the phenotype belongs to another person who is not a relative" in (
+        prompt
+    )
 
 
 def test_model_temporality_reaches_the_term():

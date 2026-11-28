@@ -105,8 +105,9 @@ _ASSERTION_DESCRIPTION = (
     "present and only Y is absent."
 )
 _TEMPORALITY_DESCRIPTION = (
-    "When the phenotype applies: 'current' (now or in the reported episode), "
-    "'historical' (only in the past and no longer present), or 'unknown'."
+    "'current' when the finding belongs to the reported case or the note says it "
+    "continues; 'historical' when the note places it before and outside the "
+    "reported case. Persistence is never inferred from medical knowledge."
 )
 _TEMPORALITY_VALUES = frozenset({"current", "historical", "unknown"})
 
@@ -149,8 +150,8 @@ class LLMExtractedPhenotype(BaseModel):
     category: Literal["Abnormal", "Normal", "Suspected", "Family_History", "Other"] = (
         Field(
             description=(
-                "Classification of the extracted phrase as patient-present, negated, "
-                "uncertain, family history, or non-phenotype metadata."
+                "Category derived from experiencer and assertion: patient-present, "
+                "negated, uncertain, family history, or another person (Other)."
             )
         )
     )
