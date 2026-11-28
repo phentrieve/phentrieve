@@ -1,0 +1,65 @@
+/*
+ * Per-term mark palette for the full-text note and its findings list (#562).
+ *
+ * Each slot sets two custom properties:
+ *   --ph-mark-rgb    the fill hue (used with low alpha behind body text)
+ *   --ph-mark-solid  a darker shade for solid badges with white text
+ * Light fills at the alphas used in FullTextWorkspace.vue keep body text far
+ * above WCAG AA; every solid shade reaches >= 4.5:1 against white.
+ * Colour never carries state (manual / negated / active): see the line and
+ * pattern styles in FullTextWorkspace.vue.
+ */
+:root {
+  --ph-mark-alpha: 0.2;
+  --ph-mark-alpha-hover: 0.3;
+}
+
+.ph-mark-slot-0 {
+  --ph-mark-rgb: 37, 99, 235; /* blue */
+  --ph-mark-solid: 29, 78, 216;
+}
+.ph-mark-slot-1 {
+  --ph-mark-rgb: 13, 148, 136; /* teal */
+  --ph-mark-solid: 15, 118, 110;
+}
+.ph-mark-slot-2 {
+  --ph-mark-rgb: 217, 119, 6; /* amber */
+  --ph-mark-solid: 180, 83, 9;
+}
+.ph-mark-slot-3 {
+  --ph-mark-rgb: 225, 29, 72; /* rose */
+  --ph-mark-solid: 190, 18, 60;
+}
+.ph-mark-slot-4 {
+  --ph-mark-rgb: 124, 58, 237; /* violet */
+  --ph-mark-solid: 109, 40, 217;
+}
+.ph-mark-slot-5 {
+  --ph-mark-rgb: 22, 163, 74; /* green */
+  --ph-mark-solid: 21, 128, 61;
+}
+
+/* Dark theme: lighter hues and a stronger fill so marks stay visible on the
+   dark surface while light body text keeps its contrast. */
+.v-theme--dark {
+  --ph-mark-alpha: 0.3;
+  --ph-mark-alpha-hover: 0.42;
+}
+.v-theme--dark .ph-mark-slot-0 {
+  --ph-mark-rgb: 96, 165, 250;
+}
+.v-theme--dark .ph-mark-slot-1 {
+  --ph-mark-rgb: 45, 212, 191;
+}
+.v-theme--dark .ph-mark-slot-2 {
+  --ph-mark-rgb: 251, 191, 36;
+}
+.v-theme--dark .ph-mark-slot-3 {
+  --ph-mark-rgb: 251, 113, 133;
+}
+.v-theme--dark .ph-mark-slot-4 {
+  --ph-mark-rgb: 167, 139, 250;
+}
+.v-theme--dark .ph-mark-slot-5 {
+  --ph-mark-rgb: 74, 222, 128;
+}

@@ -15,6 +15,7 @@ import {
   buildSegmentsFromAnnotations,
   deriveFindingsFromAnnotations,
 } from './useUserNoteAnnotations';
+import { applyMarkColours, assignMarkColours } from '../utils/markColours';
 
 export function useFullTextCuration(turnId) {
   const store = useFullTextCurationStore();
@@ -39,7 +40,12 @@ export function useFullTextCuration(turnId) {
 
   const annotations = computed(() => store.annotationsForTurn(turnId));
   const findings = computed(() => deriveFindingsFromAnnotations(annotations.value));
-  const segments = computed(() => buildSegmentsFromAnnotations(noteText.value, annotations.value));
+  // Note segments carry a per-term `colourSlot` (#562); the findings list reads
+  // the same slots through `colourSlots` so rows match their marks.
+  const segments = computed(() =>
+    applyMarkColours(buildSegmentsFromAnnotations(noteText.value, annotations.value))
+  );
+  const colourSlots = computed(() => assignMarkColours(segments.value));
   const canUndo = computed(() => store.canUndo(turnId));
 
   async function requery(text, options = {}) {
@@ -95,6 +101,7 @@ export function useFullTextCuration(turnId) {
     annotations,
     findings,
     segments,
+    colourSlots,
     canUndo,
     requery,
     annotationById,

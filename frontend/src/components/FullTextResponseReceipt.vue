@@ -36,39 +36,42 @@
     </div>
     <v-list
       v-if="phenotypes.length > 0"
-      lines="two"
-      class="rounded-lg mt-3 full-text-response-list"
+      density="compact"
+      class="rounded-lg mt-2 py-0 full-text-response-list"
     >
       <div
         v-for="(phenotype, index) in phenotypes"
         :key="`${item.id}-${phenotype.hpo_id}`"
         data-testid="full-text-response-phenotype"
         class="full-text-response-phenotype"
-        :class="{
-          'full-text-response-phenotype--active': hoveredPhenotypeId === phenotype.hpo_id,
-        }"
+        :class="[
+          markColourClass(markSlotFor(phenotype.hpo_id)),
+          { 'full-text-response-phenotype--active': hoveredPhenotypeId === phenotype.hpo_id },
+        ]"
         @mouseenter="emit('hover-phenotype', phenotype.hpo_id)"
         @mouseleave="emit('clear-hover')"
       >
-        <div class="full-text-response-phenotype__row">
-          <ResultItem
-            :result="mapTextProcessPhenotypeToResult(phenotype)"
-            :rank="index + 1"
-            :is-collected="isCollected(phenotype.hpo_id)"
-            @add-to-collection="emit('add-to-collection', normalizeTextProcessPhenotype(phenotype))"
-          />
-          <v-chip
-            v-if="phenotype.origin === 'manual'"
-            data-testid="finding-origin-badge"
-            size="x-small"
-            color="primary"
-            variant="tonal"
-            label
-            class="full-text-response-phenotype__badge"
-          >
-            {{ translate('annotatedDocumentPane.origin.manual', 'Manual') }}
-          </v-chip>
-        </div>
+        <ResultItem
+          :result="mapTextProcessPhenotypeToResult(phenotype)"
+          :rank="index + 1"
+          :is-collected="isCollected(phenotype.hpo_id)"
+          :mark-slot="markSlotFor(phenotype.hpo_id)"
+          compact
+          @add-to-collection="emit('add-to-collection', normalizeTextProcessPhenotype(phenotype))"
+        >
+          <template #badges>
+            <v-chip
+              v-if="phenotype.origin === 'manual'"
+              data-testid="finding-origin-badge"
+              size="x-small"
+              color="primary"
+              variant="tonal"
+              label
+            >
+              {{ translate('annotatedDocumentPane.origin.manual', 'Manual') }}
+            </v-chip>
+          </template>
+        </ResultItem>
       </div>
     </v-list>
     <section
@@ -96,7 +99,7 @@
             class="mt-1"
           />
           <template v-if="isExcludedFinding(term)" #append>
-            <v-chip size="x-small" color="warning" variant="tonal" label>
+            <v-chip size="x-small" variant="outlined" prepend-icon="mdi-minus-circle-outline" label>
               {{ $t('queryInterface.fullTextReceipt.relatedFindingAbsent') }}
             </v-chip>
           </template>
@@ -112,6 +115,7 @@ import { useI18n } from 'vue-i18n';
 import ResultItem from './ResultItem.vue';
 import ModifierChips from './ModifierChips.vue';
 import { useFullTextCuration } from '../composables/useFullTextCuration';
+import { hashSlot, markColourClass } from '../utils/markColours';
 
 defineOptions({
   name: 'FullTextResponseReceipt',
@@ -281,7 +285,8 @@ function mapTextProcessPhenotypeToResult(term) {
     confidence,
     score: confidence,
     scoreType: 'confidence',
-    similarity: confidence ?? similarity ?? 0,
+    // Manual findings have no score; null hides the chip instead of a red 0.00.
+    similarity: confidence ?? similarity ?? null,
     definition: details.definition || '',
     synonyms: Array.isArray(details.synonyms) ? details.synonyms : [],
     assertion_status: normalizeAssertionStatus(term.status, term.excluded),
@@ -321,6 +326,13 @@ function normalizeTextProcessPhenotype(term) {
     assertion_status: normalizeAssertionStatus(term.status, term.excluded),
     ...(modifiers.length > 0 ? { modifiers } : {}),
   };
+}
+
+// Same colour slot as the finding's marks in the note (#562). A term with no
+// visible mark (e.g. redacted note) still gets its stable hashed slot.
+function markSlotFor(hpoId) {
+  const slots = curation.colourSlots.value;
+  return slots.has(hpoId) ? slots.get(hpoId) : hashSlot(hpoId);
 }
 
 function isCollected(hpoId) {
@@ -363,25 +375,14 @@ function emitAddAll() {
 }
 
 .full-text-response-phenotype {
-  border-radius: 12px;
-  transition:
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
+  border-radius: 6px;
+  transition: background-color 0.16s ease;
 }
 
+/* Hovering a mark in the note highlights its row; a background tint keeps the
+   compact list from jumping (#569). */
 .full-text-response-phenotype--active {
-  transform: translateY(-1px);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
-}
-
-.full-text-response-phenotype__row {
-  position: relative;
-}
-
-.full-text-response-phenotype__badge {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  pointer-events: none;
+  background: rgba(var(--ph-mark-rgb, 37, 99, 235), 0.1);
+  box-shadow: inset 3px 0 0 rgb(var(--ph-mark-solid, 29, 78, 216));
 }
 </style>

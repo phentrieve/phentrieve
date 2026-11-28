@@ -6,6 +6,9 @@ import i18n from './i18n';
 // Import critical CSS first to optimize rendering
 import './critical.css';
 
+// Per-term mark palette for the full-text note (#562)
+import './styles/markColours.css';
+
 // Pinia store
 import { createPinia } from 'pinia';
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
