@@ -248,7 +248,11 @@
       "queryLabel": "Phenotype query",
       "noteLabel": "Research note",
       "notePlaceholder": "Paste or type research phenotype text",
-      "noteSubmitHint": "Ctrl+Enter to analyze",
+      "noteSubmitHint": "{shortcut} to analyze",
+      "submitTooltipQuery": "Search ({shortcut})",
+      "submitTooltipNote": "Analyze ({shortcut})",
+      "ctrlKey": "Ctrl",
+      "enterKey": "Enter",
       "cancel": "Cancel",
       "collapseNote": "Collapse note",
       "expandNote": "Expand note"

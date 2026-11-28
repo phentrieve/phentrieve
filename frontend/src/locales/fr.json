@@ -248,7 +248,11 @@
       "queryLabel": "Requête de phénotype",
       "noteLabel": "Note de recherche",
       "notePlaceholder": "Collez ou saisissez un texte phénotypique de recherche",
-      "noteSubmitHint": "Ctrl+Entrée pour analyser",
+      "noteSubmitHint": "{shortcut} pour analyser",
+      "submitTooltipQuery": "Rechercher ({shortcut})",
+      "submitTooltipNote": "Analyser ({shortcut})",
+      "ctrlKey": "Ctrl",
+      "enterKey": "Entrée",
       "cancel": "Annuler",
       "collapseNote": "Réduire la note",
       "expandNote": "Développer la note"

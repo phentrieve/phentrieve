@@ -25,7 +25,10 @@
         hide-details="auto"
         :persistent-hint="!compact"
         class="search-input search-input--text-process ml-2 ml-sm-3 flex-grow-1"
-        :class="{ 'search-input--compact': compact && !queryText }"
+        :class="{
+          'search-input--compact': compact && !queryText,
+          'search-input--has-text': Boolean(queryText && queryText.trim()),
+        }"
         :disabled="isLoading"
         bg-color="surface"
         color="primary"
@@ -36,7 +39,7 @@
         :placeholder="$t('queryInterface.form.notePlaceholder')"
         :aria-label="textProcessInputLabel"
         :aria-description="textProcessInputDescription"
-        :hint="$t('queryInterface.form.noteSubmitHint')"
+        :hint="$t('queryInterface.form.noteSubmitHint', { shortcut: noteShortcutLabel })"
         @keydown.enter.ctrl.exact.prevent="canSubmit ? emitSubmit() : null"
         @keydown.enter.meta.exact.prevent="canSubmit ? emitSubmit() : null"
       >
@@ -83,11 +86,15 @@
           :disabled="!isLoading && !queryText.trim()"
           class="search-submit-button"
           :aria-label="searchButtonLabel"
+          :aria-keyshortcuts="submitKeyShortcuts"
           size="small"
           data-tutorial-step="search-button"
           @click="canSubmit ? emitSubmit() : null"
         >
           <v-icon>mdi-magnify</v-icon>
+          <v-tooltip activator="parent" location="bottom" :open-delay="300">
+            <span data-testid="search-submit-tooltip">{{ submitTooltip }}</span>
+          </v-tooltip>
         </v-btn>
         <v-btn
           v-if="isLoading"
@@ -107,6 +114,8 @@
 </template>
 
 <script>
+import { COMMAND_KEY_SYMBOL, isApplePlatform } from '../../utils/platform';
+
 export default {
   name: 'QueryForm',
   props: {
@@ -162,6 +171,26 @@ export default {
     canSubmit() {
       return !this.isLoading && this.queryText.trim();
     },
+    isApple() {
+      return isApplePlatform();
+    },
+    enterKeyLabel() {
+      return this.$t('queryInterface.form.enterKey');
+    },
+    // Full-text notes take line breaks, so plain Enter cannot submit there (#572).
+    noteShortcutLabel() {
+      const modifier = this.isApple ? COMMAND_KEY_SYMBOL : this.$t('queryInterface.form.ctrlKey');
+      return `${modifier}+${this.enterKeyLabel}`;
+    },
+    submitTooltip() {
+      return this.isTextProcessModeActive
+        ? this.$t('queryInterface.form.submitTooltipNote', { shortcut: this.noteShortcutLabel })
+        : this.$t('queryInterface.form.submitTooltipQuery', { shortcut: this.enterKeyLabel });
+    },
+    submitKeyShortcuts() {
+      if (!this.isTextProcessModeActive) return 'Enter';
+      return this.isApple ? 'Meta+Enter Control+Enter' : 'Control+Enter Meta+Enter';
+    },
   },
   methods: {
     emitSubmit() {
@@ -209,6 +238,12 @@ export default {
 
 .search-input--text-process {
   margin-right: 64px !important;
+}
+
+/* Once there is a note to send, the shortcut hint stands out (#572). */
+.search-input--has-text :deep(.v-messages__message) {
+  color: rgb(var(--v-theme-primary));
+  font-weight: 500;
 }
 
 .search-input--text-process :deep(.v-label) {

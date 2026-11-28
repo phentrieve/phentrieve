@@ -248,7 +248,11 @@
       "queryLabel": "Phänotypsuche",
       "noteLabel": "Forschungsnotiz",
       "notePlaceholder": "Phänotyptext aus der Forschung einfügen oder eingeben",
-      "noteSubmitHint": "Strg+Enter zum Analysieren",
+      "noteSubmitHint": "{shortcut} zum Analysieren",
+      "submitTooltipQuery": "Suchen ({shortcut})",
+      "submitTooltipNote": "Analysieren ({shortcut})",
+      "ctrlKey": "Strg",
+      "enterKey": "Enter",
       "cancel": "Abbrechen",
       "collapseNote": "Notiz einklappen",
       "expandNote": "Notiz ausklappen"
