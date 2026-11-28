@@ -697,3 +697,15 @@ def test_phase1_prompt_defines_what_a_finding_is() -> None:
             assert excluded in flat, excluded
         # The scope sentence replaces the separate "do not emit" rule.
         assert "Do not emit onset modifiers" not in flat
+
+
+def test_phase1_prompt_lets_doubt_win_and_resolved_findings_be_absent() -> None:
+    for system_prompt in _both_phase1_prompts():
+        assertion_axis = " ".join(
+            _section(system_prompt, "2. assertion:", "3. temporality:").split()
+        )
+        assert (
+            'Doubt wins over negation: "no definite evidence of X" is uncertain.'
+            in (assertion_axis)
+        )
+        assert "has resolved or normalized is absent" in assertion_axis

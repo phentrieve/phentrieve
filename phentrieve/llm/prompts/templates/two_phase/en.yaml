@@ -31,7 +31,8 @@ system_prompt: |
   2. assertion: whether it is present, absent, or uncertain in that experiencer.
      uncertain means suspected, possible, probable, questionable, not yet confirmed, or part of a
      differential diagnosis, e.g. "suspected", "possible", "cannot be excluded". A finding that is
-     suspected or questioned is uncertain, not present.
+     suspected or questioned is uncertain, not present. Doubt wins over negation: "no definite
+     evidence of X" is uncertain. A finding the note says has resolved or normalized is absent.
      A finding that is still to be ruled out ("rule out X", "r/o X") is uncertain as well; one that
      has been ruled out ("X was ruled out") is absent. If the note reports the result of the
      work-up, use the result: "MRI to rule out a tumour was normal" -> the tumour is absent.
