@@ -149,8 +149,8 @@ class LLMExtractedPhenotype(BaseModel):
     category: Literal["Abnormal", "Normal", "Suspected", "Family_History", "Other"] = (
         Field(
             description=(
-                "Classification of the extracted phrase as patient-present, negated, "
-                "uncertain, family history, or non-phenotype metadata."
+                "Category derived from experiencer and assertion: patient-present, "
+                "negated, uncertain, family history, or another person (Other)."
             )
         )
     )

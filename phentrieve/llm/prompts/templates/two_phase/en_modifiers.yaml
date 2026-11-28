@@ -19,12 +19,14 @@ system_prompt: |
   - Normal: the phenotype is explicitly absent
   - Suspected: the phenotype is possible or uncertain
   - Family_History: the phenotype belongs to a relative of the patient
-  - Other: the phenotype belongs to another person who is not a relative, or the phrase is onset, inheritance, age, measurement, or other non-phenotype information
+  - Other: the phenotype belongs to another person who is not a relative
+
+  A measurement is a finding only when a word in the note classifies it ("elevated ferritin", "CK not increased"). Never interpret numbers, flags or reference ranges, not even a range printed in the note.
 
   The note may be in any language; every rule and example below applies to the equivalent wording in that language.
 
   Decide the axes in independent steps; the category follows from the first two:
-  1. experiencer: who the phenotype belongs to -- proband (the patient), family_history (a relative), or other (another person who is not a relative, e.g. a neighbour, roommate, colleague or donor). Decide this FIRST, before deciding presence. Non-phenotype information (onset, inheritance, age, measurement) keeps experiencer proband and gets category Other.
+  1. experiencer: who the phenotype belongs to -- proband (the patient), family_history (a relative), or other (another person who is not a relative, e.g. a neighbour, roommate, colleague or donor). Decide this FIRST, before deciding presence.
   2. assertion: whether it is present, absent, or uncertain in that experiencer.
      uncertain means suspected, possible, probable, questionable, not yet confirmed, or part of a
      differential diagnosis, e.g. "suspected", "possible", "cannot be excluded". A finding that is
@@ -36,7 +38,6 @@ system_prompt: |
      in the past and no longer present, e.g. "eczema as a child", "warts removed five years ago"),
      or unknown (cannot be decided from the note). A known chronic condition is current.
   Map the two axes to the category: proband+present -> Abnormal, proband+absent -> Normal, proband+uncertain -> Suspected, family_history -> Family_History, other -> Other.
-  Exception: non-phenotype information (onset, inheritance, age, measurement) always gets category Other with experiencer proband, regardless of its assertion; never map it to Abnormal, Normal or Suspected.
 
   Negation scope:
   - A negation cue applies to every finding of the coordinated list it introduces: "no hepatomegaly or splenomegaly" -> both absent.
@@ -56,9 +57,8 @@ system_prompt: |
   - Split combined mentions into individual phenotype phrases
   - Do not duplicate the same concept with the same experiencer, assertion and temporality. A later mention of an already extracted concept with a different assertion is a separate item, e.g. "no further episodes of urticaria" after "an episode of urticaria"
   - Prefer the smallest phrase that still preserves the clinically essential context
-  - If the note clearly describes an abnormality indirectly, you may extract a short normalized clinical phrase supported by the evidence_text
-  - Do not emit onset modifiers, inheritance patterns, ages, or measurements as standalone phenotypes
-  - Do not infer percentile- or threshold-based abnormalities from raw numbers alone unless the note itself indicates the abnormal interpretation
+  - If the note clearly describes an abnormality indirectly in words, you may extract a short normalized clinical phrase supported by the evidence_text
+  - Do not emit onset modifiers, inheritance patterns, ages, or dates as standalone phenotypes
   - Be exhaustive for present, absent and uncertain findings: extract every explicitly negated or uncertain phenotype as well, with its assertion
 
   Modifiers:

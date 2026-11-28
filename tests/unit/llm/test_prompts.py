@@ -421,14 +421,43 @@ def test_phase1_prompt_is_english_only() -> None:
         assert cue not in system_prompt, cue
 
 
-def test_phase1_prompt_names_no_numeric_threshold_for_measurements() -> None:
-    system_prompt = _phase1_system_prompt()
+def _both_phase1_prompts() -> list[str]:
+    return [
+        _phase1_system_prompt(),
+        loader.get_modifier_extraction_prompt("en").system_prompt,
+    ]
 
-    # The note has to state an abnormality; the prompt gives no cut-off that
-    # would let the model judge a value, percentile or SD score itself.
-    assert "from raw numbers alone" in system_prompt
-    for cutoff in ("97th", "3rd", "2 SD", "3. Perzentile"):
-        assert cutoff not in system_prompt, cutoff
+
+def test_phase1_prompt_names_no_numeric_threshold_for_measurements() -> None:
+    for system_prompt in _both_phase1_prompts():
+        flat = " ".join(system_prompt.split())
+        # The note has to classify a measurement in words; the prompt gives no
+        # cut-off that would let the model judge a value, percentile or SD score.
+        assert (
+            "A measurement is a finding only when a word in the note classifies it"
+            in (flat)
+        )
+        assert "Never interpret numbers, flags or reference ranges" in flat
+        for cutoff in ("97th", "3rd", "2 SD", "3. Perzentile"):
+            assert cutoff not in system_prompt, cutoff
+
+
+def test_phase1_category_other_is_only_another_person() -> None:
+    # Category follows from experiencer and assertion without an exception, so a
+    # measurement the note classifies ("elevated ferritin") is not dropped as
+    # Other (#495).
+    for system_prompt in _both_phase1_prompts():
+        (other_line,) = [
+            line
+            for line in system_prompt.splitlines()
+            if line.strip().startswith("- Other:")
+        ]
+        assert other_line.strip() == (
+            "- Other: the phenotype belongs to another person who is not a relative"
+        )
+        assert "Exception: non-phenotype information" not in system_prompt
+        assert "gets category Other" not in system_prompt
+        assert "indirectly in words" in system_prompt
 
 
 def test_phase1_template_is_v3_4_1_and_keeps_its_placeholders() -> None:
