@@ -83,7 +83,8 @@ def test_prompt_defines_temporality():
 
     assert "temporality" in prompt
     assert "historical" in prompt
-    assert "no longer present" in prompt
+    assert "before and outside" in prompt
+    assert "no longer present" not in prompt
 
 
 def test_prompt_derives_category_from_the_axes_without_exception():

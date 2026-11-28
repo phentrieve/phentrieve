@@ -709,3 +709,23 @@ def test_phase1_prompt_lets_doubt_win_and_resolved_findings_be_absent() -> None:
             in (assertion_axis)
         )
         assert "has resolved or normalized is absent" in assertion_axis
+
+
+def test_phase1_temporality_follows_the_wording_not_medical_knowledge() -> None:
+    # Guideline R3 / A47: historical is placed before and outside the reported
+    # case; the reported case and stated continuation are current; persistence
+    # is never assumed.
+    for system_prompt in _both_phase1_prompts():
+        temporality = " ".join(
+            _section(system_prompt, "3. temporality:", "Map the two axes").split()
+        )
+        assert "the reason for or the subject of the present contact" in temporality
+        assert "before and outside the reported case" in temporality
+        assert "The narrative past tense of a report alone is not historical." in (
+            temporality
+        )
+        assert "Never infer from medical knowledge whether a finding persists." in (
+            temporality
+        )
+        assert "A known chronic condition is current" not in temporality
+        assert "no longer present" not in temporality
