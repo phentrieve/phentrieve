@@ -678,3 +678,22 @@ def test_mapping_prompts_describe_the_compacted_payload(get_template) -> None:
         "retrieval_query only when it differs from the item's retrieval_query"
         in candidate_line
     )
+
+
+def test_phase1_prompt_defines_what_a_finding_is() -> None:
+    # Scope as in the annotation guideline (R0): what is extracted and what is not.
+    for system_prompt in _both_phase1_prompts():
+        flat = " ".join(system_prompt.split())
+        assert (
+            "A finding is a pathological finding of a person that the note states"
+            in (flat)
+        )
+        for excluded in (
+            '"ultrasound unremarkable"',
+            '"status post tonsillectomy"',
+            '"smoker"',
+            '"risk of renal failure"',
+        ):
+            assert excluded in flat, excluded
+        # The scope sentence replaces the separate "do not emit" rule.
+        assert "Do not emit onset modifiers" not in flat
